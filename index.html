@@ -1264,163 +1264,193 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
-let audioUnlockPromise = null;
-let audioUnlockStartedAt = 0;
+/* Tiny near-silent WAV — HTML5 Audio unlock fallback for Android WebView bugs */
+const SILENT_WAV_URI = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+
+let audioSetupStarted = false;
+let audioResumeAttempts = 0;
+let audioGestureAt = 0;
+let audioStateWatchUntil = 0;
+let lastAudioStateLogAt = 0;
+let lastKnownAudioState = "";
+let htmlAudioUnlockDone = false;
 
 /**
- * Call this SYNCHRONOUSLY at the top of real user-gesture handlers
- * (touchstart / click) so browsers unlock AudioContext reliably.
- * Then kicks off unlockAudio() in the background (never blocks the gesture).
+ * ABSOLUTE FIRST call from every real user gesture.
+ * Creates AudioContext + fires resume() synchronously — never awaits.
+ * Retries on every later gesture until state === "running".
  */
-function primeAudioFromGesture() {
+function resumeAudioFromGesture(reason) {
+  const why = reason || "gesture";
   try {
-    initAudioContext();
     if (!audioCtx) {
-      console.warn("[audio] prime: AudioContext not created");
-    } else {
-      console.warn("[audio] prime: gesture sync, state=" + audioCtx.state);
-      if (audioCtx.state === "suspended") {
-        console.warn("[audio] prime: calling resume() NOW (sync on gesture stack)");
-        try {
-          const p = audioCtx.resume();
-          if (p && typeof p.then === "function") {
-            p.then(() => {
-              console.warn("[audio] prime: resume() settled, state=" + audioCtx.state);
-            }).catch((err) => {
-              console.warn("[audio] prime: resume() rejected: " + (err && err.message ? err.message : err) +
-                " state=" + (audioCtx ? audioCtx.state : "?"));
-            });
-          }
-        } catch (err) {
-          console.warn("[audio] prime: resume() threw sync: " + (err && err.message ? err.message : err));
-        }
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) {
+        console.warn("[audio] no AudioContext API");
+      } else {
+        audioCtx = new Ctx();
+        sfxGain = audioCtx.createGain();
+        sfxGain.gain.value = sfxMuted ? 0 : 1;
+        sfxGain.connect(audioCtx.destination);
+        console.warn("[audio] AudioContext created, state=" + audioCtx.state);
       }
     }
   } catch (err) {
-    console.warn("[audio] prime failed: " + (err && err.message ? err.message : err));
+    console.warn("[audio] create context failed: " + (err && err.message ? err.message : err));
   }
-  void unlockAudio();
+
+  if (!audioGestureAt) {
+    audioGestureAt = performance.now();
+    audioStateWatchUntil = audioGestureAt + 5000;
+    console.warn("[audio] first gesture at t=0, watching state for 5s");
+  }
+
+  /* HTML5 <audio> unlock — independent of Web Audio resume() */
+  if (!htmlAudioUnlockDone) {
+    htmlAudioUnlockDone = true;
+    try {
+      const el = new Audio();
+      el.src = AUDIO_FILES.ui || SILENT_WAV_URI;
+      el.volume = 0.01;
+      const playP = el.play();
+      if (playP && typeof playP.catch === "function") {
+        playP.catch(() => {
+          try {
+            const silent = new Audio(SILENT_WAV_URI);
+            silent.volume = 0.01;
+            const p2 = silent.play();
+            if (p2 && p2.catch) p2.catch(() => {});
+          } catch (_) {}
+        });
+      }
+      console.warn("[audio] HTML5 Audio unlock play() fired");
+    } catch (err) {
+      console.warn("[audio] HTML5 Audio unlock failed: " + (err && err.message ? err.message : err));
+    }
+  }
+
+  if (audioCtx) {
+    const before = audioCtx.state;
+    if (before !== "running") {
+      audioResumeAttempts++;
+      const ageMs = audioGestureAt ? Math.round(performance.now() - audioGestureAt) : 0;
+      const isRetry = ageMs > 1500;
+      console.warn("[audio] resume() #" + audioResumeAttempts +
+        (isRetry ? " RETRY" : "") + " (" + why + ") before=" + before + " ageMs=" + ageMs);
+      try {
+        const p = audioCtx.resume(); /* fire-and-forget — NEVER await */
+        if (p && typeof p.then === "function") {
+          p.then(() => {
+            console.warn("[audio] resume #" + audioResumeAttempts + " settled → " + audioCtx.state);
+          }).catch((err) => {
+            console.warn("[audio] resume #" + audioResumeAttempts + " rejected: " +
+              (err && err.message ? err.message : err) + " state=" + audioCtx.state);
+          });
+        }
+      } catch (err) {
+        console.warn("[audio] resume() threw sync: " + (err && err.message ? err.message : err));
+      }
+    }
+  }
+
+  /* Load buffers + start loops in parallel — do NOT wait for resume() */
+  void setupAudioAssets();
 }
 
-async function unlockAudio() {
-  if (audioUnlocked) return;
+/** @deprecated alias — prefer resumeAudioFromGesture on real gestures */
+function primeAudioFromGesture() { resumeAudioFromGesture("prime"); }
+function unlockAudio() { resumeAudioFromGesture("unlockAudio"); }
 
-  if (audioUnlockPromise) {
-    const age = Date.now() - audioUnlockStartedAt;
-    if (age > 12000) {
-      console.warn("[audio] unlockAudio: stuck promise age=" + age + "ms — forcing audioUnlocked=true");
-      audioUnlocked = true;
-      audioUnlockPromise = null;
-      return;
-    }
-    /* Do NOT await the hung promise — that was spamming every tap forever */
-    console.warn("[audio] unlockAudio: already in progress (age=" + age + "ms) — skip await");
+/**
+ * Load sound files and start looping sources without waiting for resume().
+ * Sources started while suspended stay silent until context becomes running.
+ */
+async function setupAudioAssets() {
+  if (audioUnlocked) return;
+  if (audioSetupStarted) return;
+  audioSetupStarted = true;
+  console.warn("[audio] setupAudioAssets: loading (parallel to resume, not gated)");
+
+  if (!audioCtx) initAudioContext();
+  if (!audioCtx) {
+    console.warn("[audio] setupAudioAssets: no ctx — abort");
+    audioUnlocked = true;
     return;
   }
 
-  console.warn("[audio] unlockAudio: starting…");
-  audioUnlockStartedAt = Date.now();
-  let viaTimeout = false;
-
-  audioUnlockPromise = (async () => {
-    try {
-      initAudioContext();
-      if (!audioCtx) {
-        console.warn("[audio] unlockAudio: AudioContext not created");
-        audioUnlocked = true;
-        console.warn("[audio] unlockAudio: COMPLETE via=no-ctx");
-        return;
-      }
-
-      console.warn("[audio] AudioContext state before resume step: " + audioCtx.state);
-      if (audioCtx.state === "suspended") {
-        const t0 = Date.now();
-        console.warn("[audio] resume() called at t=" + t0);
-        try {
-          await withTimeout(audioCtx.resume(), 4000, "resume()");
-          console.warn("[audio] resume() settled after " + (Date.now() - t0) + "ms, state=" + audioCtx.state);
-        } catch (resumeErr) {
-          viaTimeout = true;
-          console.warn("[audio] resume() timed out after 4s, forcing continue — state=" +
-            audioCtx.state + " err=" + (resumeErr && resumeErr.message ? resumeErr.message : resumeErr));
-        }
-      } else {
-        console.warn("[audio] AudioContext already " + audioCtx.state + " — skip resume()");
-      }
-
-      try {
-        await withTimeout(loadAllSounds(), 8000, "loadAllSounds()");
-        console.warn("[audio] loadAllSounds() finished OK");
-      } catch (loadErr) {
-        viaTimeout = true;
-        console.warn("[audio] loadAllSounds() timed out after 8s, forcing continue — " +
-          (loadErr && loadErr.message ? loadErr.message : loadErr));
-      }
-
-      try {
-        startEngineLoop();
-        startSirenLoop();
-        startNitroLoop();
-        startBrakeLoop();
-        startMusicLoop();
-        const t = audioCtx.currentTime;
-        if (engineGain) engineGain.gain.setValueAtTime(0, t);
-        if (sirenGain) sirenGain.gain.setValueAtTime(0, t);
-        if (nitroGain) nitroGain.gain.setValueAtTime(0, t);
-        if (brakeGain) brakeGain.gain.setValueAtTime(0, t);
-        brakeAudioOn = false;
-        nitroAudioOn = false;
-        sirenAudioOn = false;
-        rampMusicGain();
-        console.warn("[audio] loops started — engine=" + !!engineSource +
-          " siren=" + !!sirenSource + " nitro=" + !!nitroSource +
-          " brake=" + !!brakeSource + " music=" + !!musicSource +
-          " keys=" + Object.keys(SOUNDS).join(","));
-      } catch (loopErr) {
-        console.warn("[audio] loop start failed: " + (loopErr && loopErr.message ? loopErr.message : loopErr));
-      }
-
-      audioUnlocked = true;
-      console.warn("[audio] unlockAudio: COMPLETE via=" + (viaTimeout ? "forced-timeout" : "normal") +
-        " audioUnlocked=true state=" + audioCtx.state +
-        " elapsedMs=" + (Date.now() - audioUnlockStartedAt));
-    } catch (err) {
-      viaTimeout = true;
-      console.warn("[audio] unlockAudio failed:", err);
-      audioUnlocked = true;
-      console.warn("[audio] unlockAudio: COMPLETE via=error audioUnlocked=true elapsedMs=" +
-        (Date.now() - audioUnlockStartedAt));
-    } finally {
-      audioUnlockPromise = null;
-    }
-  })();
+  try {
+    await withTimeout(loadAllSounds(), 8000, "loadAllSounds()");
+    console.warn("[audio] loadAllSounds finished");
+  } catch (err) {
+    console.warn("[audio] loadAllSounds timed out/failed: " + (err && err.message ? err.message : err));
+  }
 
   try {
-    await withTimeout(audioUnlockPromise, 12000, "unlockAudio overall");
-  } catch (overallErr) {
-    viaTimeout = true;
-    console.warn("[audio] unlockAudio overall timed out after 12s, forcing audioUnlocked=true — " +
-      (overallErr && overallErr.message ? overallErr.message : overallErr));
-    audioUnlocked = true;
-    audioUnlockPromise = null;
+    startEngineLoop();
+    startSirenLoop();
+    startNitroLoop();
+    startBrakeLoop();
+    startMusicLoop();
+    const t = audioCtx.currentTime;
+    if (engineGain) engineGain.gain.setValueAtTime(0, t);
+    if (sirenGain) sirenGain.gain.setValueAtTime(0, t);
+    if (nitroGain) nitroGain.gain.setValueAtTime(0, t);
+    if (brakeGain) brakeGain.gain.setValueAtTime(0, t);
+    brakeAudioOn = false;
+    nitroAudioOn = false;
+    sirenAudioOn = false;
+    rampMusicGain();
+    console.warn("[audio] loops started — engine=" + !!engineSource +
+      " siren=" + !!sirenSource + " nitro=" + !!nitroSource +
+      " brake=" + !!brakeSource + " music=" + !!musicSource +
+      " keys=" + Object.keys(SOUNDS).join(",") +
+      " state=" + audioCtx.state);
+  } catch (err) {
+    console.warn("[audio] loop start failed: " + (err && err.message ? err.message : err));
   }
+
+  audioUnlocked = true;
+  console.warn("[audio] setupAudioAssets COMPLETE audioUnlocked=true state=" + audioCtx.state);
 }
 
-function onFirstGesture() { primeAudioFromGesture(); }
+/** Called every frame — state watch + opportunistic running detection */
+function pollAudioContextState() {
+  if (!audioCtx) return;
+  const st = audioCtx.state;
+  if (st !== lastKnownAudioState) {
+    console.warn("[audio] state changed " + (lastKnownAudioState || "?") + " → " + st +
+      " (attempts=" + audioResumeAttempts + ")");
+    lastKnownAudioState = st;
+    if (st === "running") {
+      try { rampMusicGain(); } catch (_) {}
+    }
+  }
+  if (!audioStateWatchUntil) return;
+  const now = performance.now();
+  if (now > audioStateWatchUntil) return;
+  if (now - lastAudioStateLogAt < 500) return;
+  lastAudioStateLogAt = now;
+  console.warn("[audio] state poll t=" + Math.round(now - audioGestureAt) +
+    "ms state=" + st + " attempts=" + audioResumeAttempts);
+}
+
+function onFirstGesture(ev) {
+  resumeAudioFromGesture(ev && ev.type ? ev.type : "first-gesture");
+}
 document.addEventListener("touchstart", onFirstGesture, { once: true, passive: true });
 document.addEventListener("click", onFirstGesture, { once: true });
 
 if (muteBtn) muteBtn.addEventListener("click", () => {
-  primeAudioFromGesture();
+  resumeAudioFromGesture("muteBtn");
   setSfxMuted(!sfxMuted);
   if (!sfxMuted) playSFX("ui");
 });
 if (musicBtn) musicBtn.addEventListener("click", () => {
-  primeAudioFromGesture();
+  resumeAudioFromGesture("musicBtn");
   setMusicMuted(!musicMuted);
 });
 document.getElementById("camBtn")?.addEventListener("click", () => {
-  primeAudioFromGesture();
+  resumeAudioFromGesture("camBtn");
   toggleCamera();
   if (!sfxMuted) playSFX("ui");
 });
@@ -2490,7 +2520,7 @@ function startGame() {
   startingGame = true;
   try {
     /* Never await audio — slow mobile networks must not delay PLAY */
-    void unlockAudio(); /* background; gesture handlers call primeAudioFromGesture() */
+    void setupAudioAssets(); /* background load; gestures call resumeAudioFromGesture() */
     resetGame();
     silenceGameplayLoops();
     state = GameState.PLAY;
@@ -2571,7 +2601,7 @@ function goToMenu() {
 }
 
 function withUIClick(fn) {
-  return () => { primeAudioFromGesture(); playSFX("ui"); fn(); };
+  return () => { resumeAudioFromGesture("ui-click"); playSFX("ui"); fn(); };
 }
 
 function isHelpOpen() {
@@ -2591,19 +2621,19 @@ function closeHelp() {
 pauseBtn.addEventListener("click", withUIClick(pauseGame));
 document.getElementById("btnResume").addEventListener("click", withUIClick(resumeGame));
 document.getElementById("btnRestart").addEventListener("click", () => {
-  primeAudioFromGesture();
+  resumeAudioFromGesture("restart");
   startGame();
 });
 document.getElementById("btnMenu").addEventListener("click", withUIClick(goToMenu));
 document.getElementById("btnHelp")?.addEventListener("click", (e) => {
+  resumeAudioFromGesture("help");
   e.stopPropagation();
-  primeAudioFromGesture();
   if (!sfxMuted) playSFX("ui");
   openHelp();
 });
 document.getElementById("btnHelpPause")?.addEventListener("click", (e) => {
+  resumeAudioFromGesture("help-pause");
   e.stopPropagation();
-  primeAudioFromGesture();
   if (!sfxMuted) playSFX("ui");
   openHelp();
 });
@@ -2635,8 +2665,8 @@ function handleTouchTap() {
 }
 
 function onTouchStart(ev) {
+  resumeAudioFromGesture("touchstart"); /* MUST be first — before any other work */
   if (isTouchUI(ev.target)) return;
-  primeAudioFromGesture();
   if (ev.touches.length !== 1) return;
   const t = ev.touches[0];
   touchStart = { x: t.clientX, y: t.clientY, time: performance.now(), id: t.identifier };
@@ -2700,7 +2730,7 @@ for (const ov of [startPanel, overPanel, pausePanel, helpPanel]) {
 /* ----------------------------- Input ------------------------------- */
 
 window.addEventListener("keydown", (ev) => {
-  primeAudioFromGesture();
+  resumeAudioFromGesture("keydown");
   const k = ev.key;
   if (isHelpOpen()) {
     if (k === "Escape" || k === "Enter" || k === " ") {
@@ -2754,6 +2784,7 @@ window.addEventListener("keyup", (ev) => {
 let promptTouchHandled = false;
 
 function onPromptAction(e) {
+  resumeAudioFromGesture(e.type || "prompt"); /* MUST be first — before preventDefault/checks */
   e.preventDefault();
   e.stopPropagation();
   /* One physical tap often fires touchend then a synthetic click —
@@ -2765,12 +2796,11 @@ function onPromptAction(e) {
     return;
   }
   if (startingGame || isHelpOpen() || state === GameState.PLAY) return;
-  primeAudioFromGesture();
   startGame();
 }
 
 document.querySelectorAll(".prompt").forEach(el => {
-  el.addEventListener("touchstart", () => { primeAudioFromGesture(); }, { passive: true });
+  el.addEventListener("touchstart", (e) => { resumeAudioFromGesture("prompt-touchstart"); }, { passive: true });
   el.addEventListener("touchend", onPromptAction, { passive: false });
   el.addEventListener("click", onPromptAction);
 });
@@ -2787,6 +2817,8 @@ const clock = new THREE.Clock();
 function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 1 / 20);
+
+  pollAudioContextState();
 
   /* ---- Atmosphere runs off survival time; the start & game-over
      screens hold whatever moment the sky was at.                    */
@@ -2945,8 +2977,8 @@ try {
 
 const shutter = document.getElementById("shutter");
 if (shutter) {
-  shutter.addEventListener("click", () => { primeAudioFromGesture(); });
-  shutter.addEventListener("touchstart", () => { primeAudioFromGesture(); }, { passive: true });
+  shutter.addEventListener("click", () => { resumeAudioFromGesture("shutter-click"); });
+  shutter.addEventListener("touchstart", () => { resumeAudioFromGesture("shutter-touch"); }, { passive: true });
   shutter.addEventListener("transitionend", (ev) => {
     if (ev.propertyName !== "transform") return;
     forceKillShutter();
