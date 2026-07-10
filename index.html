@@ -2659,9 +2659,9 @@ function isTouchUI(el) {
 
 function handleTouchTap() {
   if (isHelpOpen()) return;
-  if (state === GameState.PLAY) pauseGame();
-  else if (state === GameState.PAUSE) resumeGame();
-  else if (state === GameState.START || state === GameState.OVER) startGame();
+  /* PLAY: never pause on canvas tap — driving uses swipe/hold only.
+     PAUSE: resume only via #btnResume / explicit UI, not canvas tap. */
+  if (state === GameState.START || state === GameState.OVER) startGame();
 }
 
 function onTouchStart(ev) {
