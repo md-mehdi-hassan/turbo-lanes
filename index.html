@@ -302,6 +302,39 @@
     pointer-events: none;
   }
 
+  /* WebGL unavailable — full-screen friendly error */
+  #webglFail {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 22px;
+    background: linear-gradient(180deg, #05060c 0%, #0c0f1e 100%);
+    text-align: center;
+  }
+  #webglFail .webglFailCard {
+    width: min(440px, 92vw);
+    padding: 28px 22px;
+    border-radius: 16px;
+    background: rgba(30, 32, 48, 0.92);
+    border: 2px solid rgba(255, 224, 74, 0.55);
+  }
+  #webglFail h1 {
+    color: #ffe04a;
+    font-size: clamp(22px, 5vw, 32px);
+    font-weight: 900;
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+  }
+  #webglFail p {
+    color: #d8dcff;
+    font-size: 15px;
+    line-height: 1.55;
+    font-weight: 600;
+  }
+
   #shutterLogo {
     font-size: clamp(52px, 10vw, 110px);
     font-weight: 900;
@@ -814,13 +847,81 @@ setTimeout(openShutter, 2600);
 setTimeout(forceKillShutter, 4000);
 
 /* ====================================================================
+   WEBGL RENDERER FALLBACK — try multiple context configs before giving up
+   ==================================================================== */
+
+function createRendererWithFallback(optionAttempts) {
+  const attempts = optionAttempts && optionAttempts.length
+    ? optionAttempts
+    : [
+        { antialias: true },
+        { antialias: false, powerPreference: "default", failIfMajorPerformanceCaveat: false },
+        { failIfMajorPerformanceCaveat: false, alpha: false },
+      ];
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      const r = new THREE.WebGLRenderer(attempts[i]);
+      if (i > 0) console.warn("[webgl] using fallback config #" + (i + 1), attempts[i]);
+      return r;
+    } catch (err) {
+      console.warn("[webgl] create attempt " + (i + 1) + " failed:", err);
+    }
+  }
+  return null;
+}
+
+function showWebGLUnavailable() {
+  try {
+    forceKillShutter();
+    for (const id of ["startOverlay", "overOverlay", "pauseOverlay", "helpOverlay", "hud", "topRightHud", "pauseBtn"]) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.add("hidden");
+        el.style.display = "none";
+        el.style.pointerEvents = "none";
+      }
+    }
+    if (document.getElementById("webglFail")) return;
+    const wrap = document.createElement("div");
+    wrap.id = "webglFail";
+    wrap.innerHTML =
+      '<div class="webglFailCard">' +
+      "<h1>3D NOT AVAILABLE</h1>" +
+      "<p>Your browser doesn't support 3D graphics needed for this game. " +
+      "Please try opening this page in Chrome or Safari instead of an in-app browser " +
+      "(e.g. Facebook/Instagram's built-in browser), or update your browser.</p>" +
+      "</div>";
+    document.body.appendChild(wrap);
+  } catch (_) {}
+}
+
+/* ====================================================================
    TURBO LANES v2 — day-night cycle, dynamic sky, headlights, richer
    roadside, and a three-type traffic system. All procedural, no assets.
    ==================================================================== */
 
+(function startTurboLanes() {
+
 /* ------------------------- Renderer & scene ----------------------- */
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+if (typeof THREE === "undefined") {
+  console.error("[webgl] THREE.js failed to load");
+  showWebGLUnavailable();
+  return;
+}
+
+const renderer = createRendererWithFallback([
+  { antialias: true },
+  { antialias: false, powerPreference: "default", failIfMajorPerformanceCaveat: false },
+  { failIfMajorPerformanceCaveat: false, alpha: false },
+]);
+
+if (!renderer) {
+  console.error("[webgl] all WebGLRenderer attempts failed");
+  showWebGLUnavailable();
+  return;
+}
+
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
@@ -1923,10 +2024,20 @@ for (const sideSign of [-1, 1]) {
 
 /* --------------- Start-screen 3D preview (own mini renderer) ------ */
 
-const previewCanvas   = document.getElementById("previewCanvas");
-const previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true, alpha: true });
-previewRenderer.setSize(340, 220, false);
-previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const previewCanvas = document.getElementById("previewCanvas");
+let previewRenderer = createRendererWithFallback([
+  { canvas: previewCanvas, antialias: true, alpha: true },
+  { canvas: previewCanvas, antialias: false, powerPreference: "default", failIfMajorPerformanceCaveat: false, alpha: true },
+  { canvas: previewCanvas, failIfMajorPerformanceCaveat: false, alpha: true },
+]);
+if (!previewRenderer) {
+  console.warn("[webgl] preview renderer unavailable — continuing without vehicle preview");
+  previewRenderer = { render() {}, setSize() {}, setPixelRatio() {} };
+  if (previewCanvas) previewCanvas.style.visibility = "hidden";
+} else {
+  previewRenderer.setSize(340, 220, false);
+  previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+}
 
 const previewScene = new THREE.Scene();
 previewScene.add(new THREE.AmbientLight(0xffffff, 0.75));
@@ -2703,6 +2814,8 @@ if (shutter) {
 }
 window.addEventListener("load", () => { setTimeout(openShutter, 1000); });
 /* 2600ms open + 4000ms hard-remove already scheduled at script top */
+
+})(); /* end startTurboLanes — early-return if WebGL unavailable */
 </script>
 </body>
 </html>
