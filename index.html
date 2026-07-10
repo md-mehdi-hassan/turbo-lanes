@@ -434,6 +434,45 @@
   }
   #vehDots i.on { background: #ffe04a; }
 
+  /* Environment chooser — same pattern as vehicle chooser */
+  #envChooser {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  #envChooser .chooseTitle { color: #9fe870; }
+  #envName {
+    color: #9fe870;
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    min-height: 22px;
+  }
+  #envDots { display: flex; gap: 7px; }
+  #envDots i {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.25);
+  }
+  #envDots i.on { background: #9fe870; }
+  .envHint {
+    color: #aab0d8;
+    font-size: 12px;
+    letter-spacing: 1px;
+    margin-top: 2px;
+  }
+  .envHint b {
+    display: inline-block;
+    padding: 1px 7px;
+    margin: 0 1px;
+    border: 1.5px solid #aab0d8;
+    border-radius: 5px;
+    color: #fff;
+    font-size: 11px;
+  }
+
   .highScores {
     padding: 10px 18px;
     background: rgba(30, 32, 48, 0.78);
@@ -688,7 +727,18 @@
       <button id="vehNext" class="arrowBtn" title="Next vehicle">►</button>
     </div>
     <p id="vehName">SPORTS CAR</p>
-    <div id="vehDots"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+    <div id="vehDots"><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+
+  <div id="envChooser">
+    <p class="chooseTitle">ENVIRONMENT</p>
+    <div class="chooserRow">
+      <button id="envPrev" class="arrowBtn" title="Previous environment">◄</button>
+      <p id="envName">AUTO</p>
+      <button id="envNext" class="arrowBtn" title="Next environment">►</button>
+    </div>
+    <div id="envDots"><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div>
+    <p class="envHint"><b>▲</b><b>▼</b>/<b>W</b><b>S</b> environment &nbsp;·&nbsp; <b>◄</b><b>►</b>/<b>A</b><b>D</b> vehicle</p>
   </div>
 
   <div class="highScores">
@@ -710,9 +760,8 @@
 
     <h2>KEYBOARD</h2>
     <ul>
-      <li><span class="keys"><b>◄</b><b>►</b> or <b>A</b><b>D</b></span> — change lanes</li>
-      <li><span class="keys"><b>▲</b> or <b>W</b></span> — nitro boost (hold)</li>
-      <li><span class="keys"><b>▼</b> or <b>S</b></span> — brake (hold)</li>
+      <li><span class="keys"><b>◄</b><b>►</b> or <b>A</b><b>D</b></span> — lanes (or vehicle on start)</li>
+      <li><span class="keys"><b>▲</b><b>▼</b> or <b>W</b><b>S</b></span> — nitro / brake (or environment on start)</li>
       <li><span class="keys"><b>Space</b></span> — start / restart / resume</li>
       <li><span class="keys"><b>P</b> / <b>Esc</b></span> — pause / resume</li>
       <li><span class="keys"><b>C</b></span> — switch camera (close / far view)</li>
@@ -1795,6 +1844,28 @@ const MAT = {
   rock:   new THREE.MeshStandardMaterial({ color: 0x5b5e78, roughness: 1, flatShading: true }),
   cargo:  new THREE.MeshStandardMaterial({ color: 0xe9e9ef, roughness: .7 }),
   cloud:  new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: .95 }),
+  /* Biome shared materials — created once, never at runtime */
+  cactus:     new THREE.MeshStandardMaterial({ color: 0x3d8f4a, roughness: 1 }),
+  sand:       new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 1 }),
+  sandRock:   new THREE.MeshStandardMaterial({ color: 0xd6b184, roughness: 1, flatShading: true }),
+  mesa:       new THREE.MeshStandardMaterial({ color: 0xc0704a, roughness: 1, flatShading: true }),
+  mesaTop:    new THREE.MeshStandardMaterial({ color: 0xd98a5e, roughness: 1 }),
+  deadBush:   new THREE.MeshStandardMaterial({ color: 0x6b4e2e, roughness: 1 }),
+  snowTip:    new THREE.MeshStandardMaterial({ color: 0xf2f6ff, roughness: 0.85 }),
+  snowLeaf:   new THREE.MeshStandardMaterial({ color: 0xe8f0f8, roughness: 0.9 }),
+  iceRock:    new THREE.MeshStandardMaterial({ color: 0xa8c8e0, roughness: 0.7, flatShading: true }),
+  cityPole:   new THREE.MeshStandardMaterial({ color: 0x3a3e4a, roughness: 0.7, metalness: 0.3 }),
+  streetLamp: new THREE.MeshStandardMaterial({ color: 0xfff2c0, emissive: 0xffe08a, emissiveIntensity: 0.4 }),
+  building:   new THREE.MeshStandardMaterial({ color: 0x4a5060, roughness: 0.85 }),
+  cityWindow: new THREE.MeshStandardMaterial({ color: 0x1a2233, emissive: 0xffcc66, emissiveIntensity: 0 }),
+  billboard:  new THREE.MeshStandardMaterial({ color: 0xe8ecf4, roughness: 0.6 }),
+  billboardFrame: new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.8 }),
+  water:      new THREE.MeshLambertMaterial({ color: 0x1a6a9a, transparent: true, opacity: 0.85 }),
+  palmFrond:  new THREE.MeshStandardMaterial({ color: 0x2f8f3a, roughness: 1 }),
+  palmTrunk:  new THREE.MeshStandardMaterial({ color: 0x8a6238, roughness: 1 }),
+  railPost:   new THREE.MeshStandardMaterial({ color: 0xf0f2f6, roughness: 0.55, metalness: 0.15 }),
+  boatHull:   new THREE.MeshStandardMaterial({ color: 0xd94a2b, roughness: 0.6 }),
+  boatCabin:  new THREE.MeshStandardMaterial({ color: 0xf4f4f8, roughness: 0.55 }),
 };
 
 const PLAYER_PAINT = new THREE.MeshStandardMaterial({ color: 0x63b9f2, roughness: .45, metalness: .12 });
@@ -2035,6 +2106,84 @@ function buildPolice() {
   return { group: g, paintMeshes: [] };
 }
 
+/* --- PLAYER: italian supercar — low, wide, rosso red wedge -------- */
+const FERRARI_RED   = new THREE.MeshStandardMaterial({ color: 0xd6111e, roughness: .3, metalness: .25 });
+const FERRARI_BADGE = new THREE.MeshStandardMaterial({ color: 0xffd60a, roughness: .35, metalness: .3 });
+
+function buildFerrari() {
+  const g = new THREE.Group();
+  carPart(g, B(2.1, 0.5, 3.7), FERRARI_RED, 0, 0.55, 0.1);                 // ultra-low hull
+  const nose = carPart(g, B(1.75, 0.34, 1.3), FERRARI_RED, 0, 0.5, -2.05);
+  nose.rotation.x = 0.1;                                                   // plunging wedge nose
+  carPart(g, B(1.15, 0.06, 0.85), FERRARI_RED, 0, 0.42, -2.55);            // splitter lip
+  carPart(g, B(0.16, 0.16, 0.05), FERRARI_BADGE, 0, 0.6, -2.62);           // yellow badge
+  /* Cab-forward glass canopy sloping into the tail */
+  const canopy = carPart(g, B(1.5, 0.42, 1.45), FERRARI_RED, 0, 0.98, 0.3);
+  const wsF = carPart(g, B(1.4, 0.44, 0.1), MAT.glass, 0, 0.92, -0.6);
+  wsF.rotation.x = -0.62;                                                  // raked windshield
+  const wsR = carPart(g, B(1.36, 0.36, 0.1), MAT.glass, 0, 0.94, 1.12);
+  wsR.rotation.x = 0.52;
+  carPart(g, B(0.06, 0.3, 1.1), MAT.glass, -0.75, 0.95, 0.3);
+  carPart(g, B(0.06, 0.3, 1.1), MAT.glass,  0.75, 0.95, 0.3);
+  /* Black side intakes — signature supercar scoops */
+  carPart(g, B(0.1, 0.26, 0.9), MAT.tire, -1.06, 0.62, 0.95);
+  carPart(g, B(0.1, 0.26, 0.9), MAT.tire,  1.06, 0.62, 0.95);
+  carPart(g, B(1.7, 0.1, 0.5), MAT.tire, 0, 0.38, 2.0);                    // rear diffuser
+  /* Low wide rear wing */
+  carPart(g, B(0.08, 0.24, 0.1), MAT.tire, -0.75, 0.94, 1.95);
+  carPart(g, B(0.08, 0.24, 0.1), MAT.tire,  0.75, 0.94, 1.95);
+  const wing = carPart(g, B(2.0, 0.06, 0.42), FERRARI_RED, 0, 1.1, 1.98);
+  wing.rotation.x = -0.1;
+  addWheels(g, [[-1.02,-1.32],[1.02,-1.32],[-1.02,1.3],[1.02,1.3]], 0.42, 0.36);
+  addLamps(g, 0.62, 0.58, -2.6, 0.72, 2.05);
+  return { group: g, paintMeshes: [] };
+}
+
+/* --- PLAYER: HILUX pickup — white double-cab, open bed, flares ---- */
+const HILUX_WHITE = new THREE.MeshStandardMaterial({ color: 0xf4f5f7, roughness: .45, metalness: .1 });
+const HILUX_BED   = new THREE.MeshStandardMaterial({ color: 0x24262e, roughness: .85 });
+const HILUX_CHROME= new THREE.MeshStandardMaterial({ color: 0xc9cdd4, roughness: .3, metalness: .6 });
+
+function buildHilux() {
+  const g = new THREE.Group();
+  carPart(g, B(2.15, 0.72, 4.5), HILUX_WHITE, 0, 0.78, 0.1);               // high body/chassis line
+  const hood = carPart(g, B(1.95, 0.3, 1.2), HILUX_WHITE, 0, 1.16, -1.75);
+  hood.rotation.x = 0.04;                                                  // slightly raked hood
+  /* Bold dark grille + chrome bar (the Hilux face) */
+  carPart(g, B(1.5, 0.5, 0.1), MAT.tire, 0, 0.95, -2.36);
+  carPart(g, B(1.55, 0.1, 0.12), HILUX_CHROME, 0, 1.14, -2.37);
+  carPart(g, B(2.2, 0.28, 0.32), HILUX_CHROME, 0, 0.5, -2.32);             // front bumper
+  /* Double-cab: tall 4-door cabin */
+  carPart(g, B(1.9, 0.72, 1.9), HILUX_WHITE, 0, 1.62, -0.35);
+  const ws = carPart(g, B(1.72, 0.56, 0.1), MAT.glass, 0, 1.6, -1.28);
+  ws.rotation.x = -0.35;
+  carPart(g, B(1.72, 0.5, 0.08), MAT.glass, 0, 1.62, 0.6);                 // rear cab glass
+  carPart(g, B(0.06, 0.44, 1.6), MAT.glass, -0.96, 1.64, -0.35);           // 4-door side glass
+  carPart(g, B(0.06, 0.44, 1.6), MAT.glass,  0.96, 1.64, -0.35);
+  /* Open cargo bed: dark floor + three walls + tailgate */
+  carPart(g, B(1.9, 0.1, 1.7), HILUX_BED, 0, 1.05, 1.55);                  // bed floor
+  carPart(g, B(0.12, 0.42, 1.7), HILUX_WHITE, -0.95, 1.28, 1.55);          // bed wall L
+  carPart(g, B(0.12, 0.42, 1.7), HILUX_WHITE,  0.95, 1.28, 1.55);          // bed wall R
+  carPart(g, B(1.9, 0.42, 0.12), HILUX_WHITE, 0, 1.28, 2.35);              // tailgate
+  carPart(g, B(1.9, 0.34, 0.1), HILUX_BED, 0, 1.3, 0.68);                  // bed front wall
+  /* Black fender flares over all four wheels */
+  for (const [fx, fz] of [[-1.1,-1.45],[1.1,-1.45],[-1.1,1.5],[1.1,1.5]]) {
+    carPart(g, B(0.16, 0.3, 1.15), MAT.tire, fx, 0.88, fz);
+  }
+  carPart(g, B(0.1, 0.08, 2.6), HILUX_CHROME, -1.12, 0.42, 0);             // side steps
+  carPart(g, B(0.1, 0.08, 2.6), HILUX_CHROME,  1.12, 0.42, 0);
+  carPart(g, B(0.05, 0.32, 0.05), MAT.tire, 0.55, 1.9, -1.2);              // antenna
+  /* Rugged wheels: big tires, silver rims */
+  const tireGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.42, 12);
+  const rimGeo  = new THREE.CylinderGeometry(0.27, 0.27, 0.44, 8);
+  for (const [wx, wz] of [[-1.06,-1.45],[1.06,-1.45],[-1.06,1.5],[1.06,1.5]]) {
+    const t2 = carPart(g, tireGeo, MAT.tire, wx, 0.5, wz); t2.rotation.z = Math.PI / 2;
+    const r2 = carPart(g, rimGeo, HILUX_CHROME, wx, 0.5, wz); r2.rotation.z = Math.PI / 2;
+  }
+  addLamps(g, 0.75, 1.05, -2.38, 1.15, 2.42);
+  return { group: g, paintMeshes: [] };
+}
+
 /* --------------------------- The road ------------------------------ */
 
 const road = new THREE.Mesh(B(ROAD_W, 0.5, ROAD_LEN), MAT.asphalt);
@@ -2042,11 +2191,28 @@ road.position.set(0, -0.25, HORIZON_Z / 2 + 30);
 road.receiveShadow = true;
 scene.add(road);
 
+/* Side ground planes — grass or water depending on biome */
+const groundPlanes = [];
+const beachPlanes = [];
+const GROUND_Y_LAND = -0.28;
+const GROUND_Y_WATER = -0.55;
+const BEACH_W = 4;
 for (const side of [-1, 1]) {
-  const grass = new THREE.Mesh(B(40, 0.44, ROAD_LEN), MAT.grass);
-  grass.position.set(side * (ROAD_W / 2 + 20), -0.28, HORIZON_Z / 2 + 30);
-  grass.receiveShadow = true;
-  scene.add(grass);
+  const ground = new THREE.Mesh(B(40, 0.44, ROAD_LEN), MAT.grass);
+  ground.userData.baseX  = side * (ROAD_W / 2 + 20);
+  ground.userData.coastX = side * (ROAD_W / 2 + BEACH_W + 20);
+  ground.position.set(ground.userData.baseX, GROUND_Y_LAND, HORIZON_Z / 2 + 30);
+  ground.receiveShadow = true;
+  scene.add(ground);
+  groundPlanes.push(ground);
+
+  /* Narrow sand strip between road and water — COAST only */
+  const beach = new THREE.Mesh(B(BEACH_W, 0.42, ROAD_LEN), MAT.sand);
+  beach.position.set(side * (ROAD_W / 2 + BEACH_W / 2), GROUND_Y_LAND, HORIZON_Z / 2 + 30);
+  beach.receiveShadow = true;
+  beach.visible = false;
+  scene.add(beach);
+  beachPlanes.push(beach);
 
   const edge = new THREE.Mesh(B(0.22, 0.02, ROAD_LEN), MAT.paint);
   edge.position.set(side * (ROAD_W / 2 - 0.3), 0.01, HORIZON_Z / 2 + 30);
@@ -2067,61 +2233,463 @@ const dashes = [];
   }
 }
 
-/* ================== Roadside nature (randomized) ====================
-   A big pool of trees / bushes / rocks / grass patches. Whenever one
-   wraps past the camera it re-randomizes its x offset, rotation and
-   scale — so the roadside never repeats exactly.                     */
+/* ================== BIOME SYSTEM ====================================
+   Five biomes + AUTO rotation. Each pool slot is a Group holding one
+   prebuilt child per biome; only the active child is visible. Ground
+   color / water and fog tint blend over ~4 s without fighting the
+   day-night cycle (multiply/lerp on top of applyAtmosphere).         */
 
-const props = [];
+const BIOME_DURATION = 45;
+const BIOME_BLEND_S  = 4;
+const _cFogBase = new THREE.Color();
+const _cFogTint = new THREE.Color();
+const _cGround  = new THREE.Color();
+const _cSkyTopBase = new THREE.Color();
+const _cSkyHorBase = new THREE.Color();
+const _cSkyTint    = new THREE.Color();
 
+/* ---- FOREST ---- */
 function makeTree() {
   const g = new THREE.Group();
-  const trunk = carPart(g, new THREE.CylinderGeometry(0.22, 0.3, 1.4, 6), MAT.trunk, 0, 0.7, 0);
-  trunk.castShadow = true;
-  const cone = carPart(g, new THREE.ConeGeometry(1.15, 2.6, 7),
-                       Math.random() < 0.5 ? MAT.leaf : MAT.leaf2, 0, 2.5, 0);
-  cone.castShadow = true;
+  g.userData.kind = "scenic";
+  carPart(g, new THREE.CylinderGeometry(0.22, 0.3, 1.4, 6), MAT.trunk, 0, 0.7, 0);
+  carPart(g, new THREE.ConeGeometry(1.15, 2.6, 7), MAT.leaf, 0, 2.5, 0);
+  return g;
+}
+function makeBigTree() {
+  /* Taller two-tier pine — breaks up the skyline in dense forest */
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  carPart(g, new THREE.CylinderGeometry(0.26, 0.36, 1.9, 6), MAT.trunk, 0, 0.95, 0);
+  carPart(g, new THREE.ConeGeometry(1.5, 2.4, 7), Math.random() < 0.5 ? MAT.leaf : MAT.leaf2, 0, 2.7, 0);
+  carPart(g, new THREE.ConeGeometry(1.05, 1.9, 7), Math.random() < 0.5 ? MAT.leaf : MAT.leaf2, 0, 4.1, 0);
   return g;
 }
 function makeBush() {
   const g = new THREE.Group();
+  g.userData.kind = "scenic";
   const b = carPart(g, new THREE.SphereGeometry(0.65, 6, 5), MAT.grassD, 0, 0.5, 0);
   b.scale.y = 0.75;
   return g;
 }
 function makeRock() {
   const g = new THREE.Group();
+  g.userData.kind = "scenic";
   carPart(g, new THREE.DodecahedronGeometry(0.55, 0), MAT.rock, 0, 0.4, 0);
   return g;
 }
 function makeGrassPatch() {
   const g = new THREE.Group();
-  // a few flat blades — cheap tufts of taller grass
+  g.userData.kind = "scenic";
   for (let i = 0; i < 3; i++) {
     const blade = carPart(g, new THREE.ConeGeometry(0.16, 0.7, 4), MAT.leaf2,
-      (Math.random() - 0.5) * 0.7, 0.32, (Math.random() - 0.5) * 0.7);
+      (i - 1) * 0.35, 0.32, (i % 2) * 0.25);
     blade.castShadow = false;
   }
   return g;
 }
 
-function randomizeProp(p) {
-  p.userData.side = Math.random() < 0.5 ? -1 : 1;
-  p.position.x = p.userData.side * (ROAD_W / 2 + 2.2 + Math.random() * 14);
-  p.rotation.y = Math.random() * Math.PI * 2;
-  const s = 0.7 + Math.random() * 0.75;
-  p.scale.set(s, s, s);
+/* ---- DESERT ---- */
+let cactusBuildCount = 0;
+function makeCactus() {
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  const h = 2.6 + (cactusBuildCount++ % 4) * 0.25;   // 2.6 .. 3.35
+  carPart(g, new THREE.CylinderGeometry(0.24, 0.3, h, 7), MAT.cactus, 0, h * 0.5, 0);
+  carPart(g, new THREE.SphereGeometry(0.24, 7, 5), MAT.cactus, 0, h, 0);       // rounded crown
+  /* Arms: horizontal elbow + vertical tip — the classic saguaro shape */
+  const armL = carPart(g, new THREE.CylinderGeometry(0.13, 0.15, 0.6, 5), MAT.cactus, -0.42, h * 0.5, 0);
+  armL.rotation.z = Math.PI / 2;
+  carPart(g, new THREE.CylinderGeometry(0.13, 0.14, 0.85, 5), MAT.cactus, -0.68, h * 0.5 + 0.4, 0);
+  carPart(g, new THREE.SphereGeometry(0.13, 6, 4), MAT.cactus, -0.68, h * 0.5 + 0.82, 0);
+  const armR = carPart(g, new THREE.CylinderGeometry(0.12, 0.14, 0.5, 5), MAT.cactus, 0.38, h * 0.62, 0);
+  armR.rotation.z = Math.PI / 2;
+  carPart(g, new THREE.CylinderGeometry(0.12, 0.13, 0.7, 5), MAT.cactus, 0.6, h * 0.62 + 0.33, 0);
+  carPart(g, new THREE.SphereGeometry(0.12, 6, 4), MAT.cactus, 0.6, h * 0.62 + 0.68, 0);
+  return g;
+}
+function makeSaguaro() {
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  const h = 3.4;
+  carPart(g, new THREE.CylinderGeometry(0.26, 0.32, h, 6), MAT.cactus, 0, h * 0.5, 0);
+  const armL = carPart(g, new THREE.CylinderGeometry(0.13, 0.15, 1.0, 5), MAT.cactus, -0.55, 2.0, 0);
+  armL.rotation.z = Math.PI / 2.3;
+  const tipL = carPart(g, new THREE.CylinderGeometry(0.12, 0.13, 0.7, 5), MAT.cactus, -0.95, 2.55, 0);
+  tipL.rotation.z = 0.08;
+  const armR = carPart(g, new THREE.CylinderGeometry(0.12, 0.14, 0.85, 5), MAT.cactus, 0.5, 2.35, 0);
+  armR.rotation.z = -Math.PI / 2.5;
+  const tipR = carPart(g, new THREE.CylinderGeometry(0.11, 0.12, 0.55, 5), MAT.cactus, 0.88, 2.85, 0);
+  tipR.rotation.z = -0.06;
+  return g;
+}
+function makeBoulder() {
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  const r = carPart(g, new THREE.DodecahedronGeometry(0.95, 0), MAT.sandRock, 0, 0.55, 0);
+  r.scale.set(1.2, 0.85, 1.0);
+  return g;
+}
+function makeDeadBush() {
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  for (let i = 0; i < 4; i++) {
+    const twig = carPart(g, new THREE.ConeGeometry(0.08, 0.75, 4), MAT.deadBush,
+      (i - 1.5) * 0.2, 0.38, (i % 2) * 0.1);
+    twig.rotation.z = (i - 1.5) * 0.4;
+    twig.castShadow = false;
+  }
+  return g;
+}
+let duneBuildCount = 0;
+function makeDune() {
+  /* Two overlapping flattened domes — reads as soft rolling sand hills */
+  const g = new THREE.Group();
+  g.userData.kind = "building";   /* far placement like buildings */
+  const r = 6 + (duneBuildCount++ % 5);   // 6 .. 10
+  const d1 = carPart(g, new THREE.SphereGeometry(r, 10, 8), MAT.sandRock, 0, 0, 0);
+  d1.scale.set(1.7, 0.22, 1.1);
+  d1.castShadow = false;
+  const d2 = carPart(g, new THREE.SphereGeometry(r * 0.7, 9, 7), MAT.sandRock, r * 0.9, 0, r * 0.35);
+  d2.scale.set(1.5, 0.28, 1.0);
+  d2.castShadow = false;
+  return g;
+}
+let mesaBuildCount = 0;
+function makeMesa() {
+  /* Layered flat-top red-rock plateau on the horizon — instant desert */
+  const g = new THREE.Group();
+  g.userData.kind = "building";   /* far placement, axis-aligned */
+  const w = 7 + (mesaBuildCount++ % 3) * 2.5;    // 7 .. 12
+  const h = 3.6 + (mesaBuildCount % 4) * 0.9;    // 3.6 .. 6.3
+  const base = carPart(g, B(w, h, w * 0.7), MAT.mesa, 0, h * 0.5, 0);
+  base.castShadow = false;
+  const mid = carPart(g, B(w * 0.72, h * 0.42, w * 0.52), MAT.mesa, w * 0.06, h + h * 0.2, 0);
+  mid.castShadow = false;
+  const top = carPart(g, B(w * 0.74, 0.22, w * 0.54), MAT.mesaTop, w * 0.06, h + h * 0.42, 0);
+  top.castShadow = false;
+  return g;
 }
 
+/* ---- SNOW ---- */
+function makeSnowPine() {
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  carPart(g, new THREE.CylinderGeometry(0.18, 0.26, 1.2, 6), MAT.trunk, 0, 0.6, 0);
+  /* 3 stacked tiers: thin green under-edge + white snowLeaf on top */
+  carPart(g, new THREE.ConeGeometry(1.25, 1.15, 7), MAT.leaf, 0, 1.35, 0);
+  carPart(g, new THREE.ConeGeometry(1.18, 1.1, 7), MAT.snowLeaf, 0, 1.5, 0);
+  carPart(g, new THREE.ConeGeometry(0.95, 1.0, 7), MAT.leaf, 0, 2.2, 0);
+  carPart(g, new THREE.ConeGeometry(0.88, 0.95, 7), MAT.snowLeaf, 0, 2.35, 0);
+  carPart(g, new THREE.ConeGeometry(0.58, 0.9, 6), MAT.leaf, 0, 2.95, 0);
+  carPart(g, new THREE.ConeGeometry(0.52, 0.85, 6), MAT.snowLeaf, 0, 3.1, 0);
+  return g;
+}
+function makeIceRock() {
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  carPart(g, new THREE.DodecahedronGeometry(0.65, 0), MAT.iceRock, 0, 0.45, 0);
+  return g;
+}
+function makeSnowman() {
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  carPart(g, new THREE.SphereGeometry(0.55, 8, 6), MAT.snowLeaf, 0, 0.5, 0);
+  carPart(g, new THREE.SphereGeometry(0.38, 8, 6), MAT.snowLeaf, 0, 1.2, 0);
+  const nose = carPart(g, new THREE.ConeGeometry(0.06, 0.28, 5), MAT.boatHull, 0, 1.22, -0.42);
+  nose.rotation.x = Math.PI / 2;
+  nose.castShadow = false;
+  return g;
+}
+
+/* ---- CITY ---- */
+let buildingBuildCount = 0;
+let skyBuildCount = 0;
+function makeStreetlight() {
+  const g = new THREE.Group();
+  g.userData.kind = "lamp";
+  /* Arm along +X — randomizeProp rotates so it overhangs toward the road */
+  carPart(g, new THREE.CylinderGeometry(0.08, 0.1, 3.2, 6), MAT.cityPole, 0, 1.6, 0);
+  carPart(g, B(0.08, 0.08, 0.9), MAT.cityPole, 0.35, 3.15, 0);
+  const lamp = carPart(g, B(0.35, 0.18, 0.45), MAT.streetLamp, 0.7, 3.05, 0);
+  lamp.castShadow = false;
+  return g;
+}
+function makeBuildingBlock() {
+  const g = new THREE.Group();
+  g.userData.kind = "building";
+  const variants = [
+    { w: 2.4, d: 2.2, floors: 3, fh: 1.35 },
+    { w: 2.9, d: 2.5, floors: 5, fh: 1.3 },
+    { w: 3.5, d: 2.8, floors: 7, fh: 1.25 },
+  ];
+  const v = variants[buildingBuildCount++ % 3];
+  for (let f = 0; f < v.floors; f++) {
+    const y = v.fh * 0.5 + f * v.fh;
+    carPart(g, B(v.w, v.fh, v.d), MAT.building, 0, y, 0);
+    /* Horizontal window strip — front (-Z) + one side (+X) */
+    const stripH = 0.32;
+    carPart(g, B(v.w * 0.82, stripH, 0.05), MAT.cityWindow, 0, y, -v.d * 0.5 - 0.03);
+    carPart(g, B(0.05, stripH, v.d * 0.82), MAT.cityWindow, v.w * 0.5 + 0.03, y, 0);
+  }
+  return g;
+}
+function makeSkyscraperSilhouette() {
+  const g = new THREE.Group();
+  g.userData.kind = "building";
+  const h = 10 + (skyBuildCount++ % 7);   // 10 .. 16
+  carPart(g, B(2.6 + (skyBuildCount % 3) * 0.3, h, 2.4), MAT.building, 0, h * 0.5, 0);
+  return g;
+}
+function makeBillboard() {
+  const g = new THREE.Group();
+  g.userData.kind = "scenic";
+  carPart(g, new THREE.CylinderGeometry(0.07, 0.09, 2.4, 5), MAT.cityPole, 0, 1.2, 0);
+  carPart(g, B(2.2, 1.2, 0.12), MAT.billboardFrame, 0, 2.6, 0);
+  carPart(g, B(1.95, 0.95, 0.06), MAT.billboard, 0, 2.6, -0.02);
+  return g;
+}
+
+/* ---- COAST ---- */
+function makePalm() {
+  const g = new THREE.Group();
+  g.userData.kind = "palm";
+  const t0 = carPart(g, new THREE.CylinderGeometry(0.16, 0.22, 1.1, 6), MAT.palmTrunk, 0, 0.55, 0);
+  t0.rotation.z = 0.12;
+  const t1 = carPart(g, new THREE.CylinderGeometry(0.13, 0.16, 1.0, 6), MAT.palmTrunk, 0.12, 1.5, 0);
+  t1.rotation.z = -0.1;
+  const t2 = carPart(g, new THREE.CylinderGeometry(0.1, 0.13, 0.85, 5), MAT.palmTrunk, 0.02, 2.35, 0);
+  t2.rotation.z = 0.08;
+  for (let i = 0; i < 5; i++) {
+    const ang = (i / 5) * Math.PI * 2;
+    const frond = carPart(g, B(0.12, 0.04, 1.5), MAT.palmFrond,
+      Math.cos(ang) * 0.35, 2.75, Math.sin(ang) * 0.35);
+    frond.rotation.y = ang;
+    frond.rotation.x = 0.55;
+    frond.castShadow = false;
+  }
+  return g;
+}
+function makeGuardRailPost() {
+  const g = new THREE.Group();
+  g.userData.kind = "rail";
+  carPart(g, B(0.12, 0.85, 0.12), MAT.railPost, 0, 0.42, 0);
+  carPart(g, B(0.5, 0.08, 0.08), MAT.railPost, 0, 0.72, 0);
+  return g;
+}
+function makeBuoyOrBoat() {
+  const g = new THREE.Group();
+  g.userData.kind = "boat";
+  carPart(g, B(1.1, 0.28, 2.0), MAT.boatHull, 0, 0.15, 0);
+  carPart(g, B(0.7, 0.45, 0.8), MAT.boatCabin, 0, 0.5, 0.15);
+  return g;
+}
+
+const BIOMES = [
+  { id: "FOREST", ground: 0x7ec850, fogTint: 0xffffff,
+    skyTint: 0xffffff, horizonTint: 0xffffff, density: 1.0,
+    builders: [makeTree, makeBigTree, makeTree, makeTree, makeBush, makeTree,
+               makeBigTree, makeGrassPatch, makeTree, makeRock] },
+  { id: "DESERT", ground: 0xe0c28e, fogTint: 0xffe2c0,
+    skyTint: 0xfff0e0, horizonTint: 0xffd9a8, density: 0.8,
+    builders: [makeSaguaro, makeMesa, makeCactus, makeDune, makeBoulder,
+               makeCactus, makeMesa, makeDeadBush, makeSaguaro, makeDune] },
+  { id: "SNOW", ground: 0xeef4fb, fogTint: 0xc4d8f5,
+    skyTint: 0xe8f0fa, horizonTint: 0xdce8f5, density: 0.85,
+    builders: [makeSnowPine, makeSnowPine, makeSnowPine, makeIceRock, makeSnowman, makeSnowPine, makeIceRock] },
+  { id: "CITY", ground: 0x5a5e6a, fogTint: 0xc8cad8,
+    skyTint: 0xe6e4f0, horizonTint: 0xd0ccd8, density: 1.0,
+    builders: [makeBuildingBlock, makeBuildingBlock, makeSkyscraperSilhouette,
+               makeBuildingBlock, makeStreetlight, makeBuildingBlock,
+               makeSkyscraperSilhouette, makeBuildingBlock, makeBillboard,
+               makeBuildingBlock] },
+  { id: "COAST", ground: 0x156090, fogTint: 0x7eb8e0,
+    skyTint: 0x5aa8e8, horizonTint: 0xa0d4ff, density: 0.85,
+    builders: [makePalm, makePalm, makeGuardRailPost, makeGuardRailPost, makeBuoyOrBoat, makePalm, makeGuardRailPost] },
+];
+
+/* biomeMode: "AUTO" or fixed biome index 0..4 — persists for the session */
+let biomeMode = "AUTO";
+let biomeIndex = 0;
+let biomePrevIndex = 0;
+let biomeBlend = 1;
+let biomeAutoAnchor = 0;   // performance.now()/1000 offset for START preview
+let lastPropBiome = -1;
+
+const props = [];
+
+function getDisplayBiomeIndex() {
+  return biomeBlend >= 0.5 ? biomeIndex : biomePrevIndex;
+}
+
+function setPropBiomeVisible(p, idx) {
+  const kids = p.userData.biomeChildren;
+  for (let i = 0; i < kids.length; i++) kids[i].visible = (i === idx);
+}
+
+function randomizeProp(p) {
+  const bIdx = (biomeMode === "AUTO") ? getDisplayBiomeIndex() : biomeIndex;
+  const dens = BIOMES[bIdx].density;
+  if (dens < 1 && Math.random() > dens) {
+    const kids = p.userData.biomeChildren;
+    for (let i = 0; i < kids.length; i++) kids[i].visible = false;
+  } else {
+    setPropBiomeVisible(p, bIdx);
+  }
+  const child = p.userData.biomeChildren[bIdx];
+  const kind = (child && child.userData.kind) || "scenic";
+  p.userData.side = Math.random() < 0.5 ? -1 : 1;
+  p.rotation.z = 0;
+  p.rotation.x = 0;
+
+  if (kind === "rail") {
+    p.position.x = p.userData.side * (ROAD_W / 2 + 0.55);
+    p.position.y = 0;
+    p.rotation.y = 0;
+    p.scale.set(1, 1, 1);
+  } else if (kind === "lamp") {
+    p.position.x = p.userData.side * (ROAD_W / 2 + 0.9);
+    p.position.y = 0;
+    /* Arm is +X local — face it toward the road */
+    p.rotation.y = p.userData.side < 0 ? 0 : Math.PI;
+    p.scale.set(1, 1, 1);
+  } else if (kind === "building") {
+    /* Pack closer to the road so the skyline fills the view */
+    p.position.x = p.userData.side * (ROAD_W / 2 + 4 + Math.random() * 12);
+    p.position.y = 0;
+    p.rotation.y = Math.random() < 0.5 ? 0 : Math.PI / 2;
+    const s = 1.05 + Math.random() * 0.55;
+    p.scale.set(s, s, s);
+  } else if (kind === "palm") {
+    /* Stay on the beach strip (road edge .. + BEACH_W) */
+    p.position.x = p.userData.side * (ROAD_W / 2 + 0.5 + Math.random() * (BEACH_W - 0.8));
+    p.position.y = 0;
+    p.rotation.y = Math.random() * Math.PI * 2;
+    p.rotation.z = (Math.random() - 0.5) * 0.18;
+    const s = 0.85 + Math.random() * 0.35;
+    p.scale.set(s, s, s);
+  } else if (kind === "boat") {
+    p.position.x = p.userData.side * (ROAD_W / 2 + BEACH_W + 8 + Math.random() * 8);
+    p.position.y = -0.2;
+    p.rotation.y = Math.random() * Math.PI * 2;
+    const s = 0.85 + Math.random() * 0.4;
+    p.scale.set(s, s, s);
+  } else {
+    p.position.x = p.userData.side * (ROAD_W / 2 + 2.2 + Math.random() * 14);
+    p.position.y = 0;
+    p.rotation.y = Math.random() * Math.PI * 2;
+    const s = 0.7 + Math.random() * 0.75;
+    p.scale.set(s, s, s);
+  }
+}
+
+function refreshAllPropBiomes() {
+  /* Re-roll placement too — lamps/rails/buildings need their per-kind
+     positions (and density) applied, not just a visibility flip.      */
+  for (let i = 0; i < props.length; i++) randomizeProp(props[i]);
+}
+
+/* Prebuild 84 slots × 5 biome children (dense forest; density thins the rest) */
 {
-  const builders = [makeTree, makeTree, makeTree, makeBush, makeGrassPatch, makeGrassPatch, makeRock];
-  const COUNT = 56;
+  const COUNT = 84;
   for (let i = 0; i < COUNT; i++) {
-    const p = builders[i % builders.length]();
-    randomizeProp(p);
-    p.position.z = HORIZON_Z - 30 + (i / COUNT) * ROAD_LEN;  // even initial spread
-    scene.add(p);
-    props.push(p);
+    const root = new THREE.Group();
+    root.userData.biomeChildren = [];
+    for (let b = 0; b < BIOMES.length; b++) {
+      const child = BIOMES[b].builders[i % BIOMES[b].builders.length]();
+      child.visible = (b === 0);
+      root.add(child);
+      root.userData.biomeChildren.push(child);
+    }
+    randomizeProp(root);
+    root.position.z = HORIZON_Z - 30 + (i / COUNT) * ROAD_LEN;
+    scene.add(root);
+    props.push(root);
+  }
+}
+
+/** Biome clock: PLAY/PAUSE use runTime; START AUTO preview uses wall clock */
+function getBiomeClock() {
+  if (biomeMode !== "AUTO") return 0;
+  if (state === GameState.START) return performance.now() / 1000 - biomeAutoAnchor;
+  return runTime;
+}
+
+/**
+ * Call AFTER applyAtmosphere. Handles AUTO rotation or fixed biome,
+ * ground/water/beach, fog + sky tint multiply, city emissives.
+ */
+function updateBiomeVisuals(darkness) {
+  const n = BIOMES.length;
+
+  if (biomeMode === "AUTO") {
+    const t = Math.max(0, getBiomeClock());
+    const cycle = Math.floor(t / BIOME_DURATION);
+    const idx = ((cycle % n) + n) % n;
+    const localT = t - cycle * BIOME_DURATION;
+    biomeIndex = idx;
+    biomePrevIndex = ((idx - 1) % n + n) % n;
+    biomeBlend = (cycle === 0 && localT < BIOME_BLEND_S)
+      ? 1
+      : (localT < BIOME_BLEND_S
+          ? THREE.MathUtils.clamp(localT / BIOME_BLEND_S, 0, 1)
+          : 1);
+  } else {
+    biomeIndex = biomeMode;
+    biomePrevIndex = biomeMode;
+    biomeBlend = 1;
+  }
+
+  const prev = BIOMES[biomePrevIndex];
+  const curr = BIOMES[biomeIndex];
+  const active = biomeBlend >= 0.5 ? curr : prev;
+  const isCoast = active.id === "COAST";
+
+  /* Ground / water planes + beach strips */
+  if (isCoast) {
+    for (let i = 0; i < groundPlanes.length; i++) {
+      groundPlanes[i].material = MAT.water;
+      groundPlanes[i].position.y = GROUND_Y_WATER;
+      groundPlanes[i].position.x = groundPlanes[i].userData.coastX;
+    }
+    for (let i = 0; i < beachPlanes.length; i++) beachPlanes[i].visible = true;
+    lerpHex(prev.ground, curr.ground, biomeBlend, _cGround);
+    const nightMul = 1 - darkness * 0.2;
+    MAT.water.color.copy(_cGround).multiplyScalar(nightMul);
+    MAT.sand.color.setHex(0xd4b483).multiplyScalar(1 - darkness * 0.22);
+  } else {
+    for (let i = 0; i < groundPlanes.length; i++) {
+      groundPlanes[i].material = MAT.grass;
+      groundPlanes[i].position.y = GROUND_Y_LAND;
+      groundPlanes[i].position.x = groundPlanes[i].userData.baseX;
+    }
+    for (let i = 0; i < beachPlanes.length; i++) beachPlanes[i].visible = false;
+    lerpHex(prev.ground, curr.ground, biomeBlend, _cGround);
+    MAT.grass.color.copy(_cGround).multiplyScalar(1 - darkness * 0.28);
+  }
+
+  /* Fog tint on top of day-night fog (capture base each frame) */
+  _cFogBase.copy(scene.fog.color);
+  lerpHex(prev.fogTint, curr.fogTint, biomeBlend, _cFogTint);
+  scene.fog.color.copy(_cFogBase).multiply(_cFogTint);
+
+  /* Sky tint — multiply atmosphere colors by biome (never accumulate) */
+  _cSkyTopBase.copy(skyUniforms.topColor.value);
+  _cSkyHorBase.copy(skyUniforms.horizonColor.value);
+  lerpHex(prev.skyTint, curr.skyTint, biomeBlend, _cSkyTint);
+  skyUniforms.topColor.value.copy(_cSkyTopBase).multiply(_cSkyTint);
+  lerpHex(prev.horizonTint, curr.horizonTint, biomeBlend, _cSkyTint);
+  skyUniforms.horizonColor.value.copy(_cSkyHorBase).multiply(_cSkyTint);
+
+  MAT.streetLamp.emissiveIntensity = 0.35 + darkness * 2.4;
+  MAT.cityWindow.emissiveIntensity = darkness * 1.85;
+
+  /* Flip pooled prop children when the active biome changes (needed on
+     START AUTO preview where props aren't scrolling/wrapping). */
+  const disp = biomeMode === "AUTO" ? getDisplayBiomeIndex() : biomeIndex;
+  if (disp !== lastPropBiome) {
+    lastPropBiome = disp;
+    refreshAllPropBiomes();
   }
 }
 
@@ -2202,6 +2770,12 @@ const VEHICLE_DEFS = [
   { name: "POLICE CAR",  halfW: 1.05, halfL: 2.1,  exhaust: { x: 0.45, z: 2.3  },
     maxSpeed: 70, accel: 1.05,
     build: buildPolice, siren: true },
+  { name: "FERRARI",     halfW: 1.08, halfL: 2.15, exhaust: { x: 0.38, z: 2.55 },
+    maxSpeed: 88, accel: 1.2,
+    build: buildFerrari },
+  { name: "HILUX 4X4",   halfW: 1.12, halfL: 2.35, exhaust: { x: 0.55, z: 2.6  },
+    maxSpeed: 68, accel: 0.9,
+    build: buildHilux },
 ];
 
 /* The rig: everything gameplay-related hangs off this group */
@@ -2329,6 +2903,50 @@ const cycleVehicle = (dir) => {
 };
 document.getElementById("vehPrev").addEventListener("click", () => cycleVehicle(-1));
 document.getElementById("vehNext").addEventListener("click", () => cycleVehicle(1));
+
+/* ================== ENVIRONMENT CHOOSER =============================
+   AUTO or a fixed biome. Selection persists for the session (restart /
+   main menu do not reset it). Live-applies to the main scene so the
+   start overlay previews the look in real time.                      */
+
+const ENV_OPTIONS = [
+  { key: "AUTO", label: "AUTO" },
+  { key: 0, label: "FOREST" },
+  { key: 1, label: "DESERT" },
+  { key: 2, label: "SNOW" },
+  { key: 3, label: "CITY" },
+  { key: 4, label: "COAST" },
+];
+let envSelectIndex = 0;
+const envNameEl = document.getElementById("envName");
+const envDots = document.querySelectorAll("#envDots i");
+
+function selectEnvironment(i) {
+  envSelectIndex = ((i % ENV_OPTIONS.length) + ENV_OPTIONS.length) % ENV_OPTIONS.length;
+  const opt = ENV_OPTIONS[envSelectIndex];
+  if (opt.key === "AUTO") {
+    biomeMode = "AUTO";
+    biomeAutoAnchor = performance.now() / 1000;
+  } else {
+    biomeMode = opt.key;
+    biomeIndex = opt.key;
+    biomePrevIndex = opt.key;
+    biomeBlend = 1;
+  }
+  if (envNameEl) envNameEl.textContent = opt.label;
+  envDots.forEach((d, n) => d.classList.toggle("on", n === envSelectIndex));
+  refreshAllPropBiomes();
+  /* Immediate ground/fog preview (darkness 0 until tick catches up) */
+  try { updateBiomeVisuals(0); } catch (_) {}
+}
+
+const cycleEnvironment = (dir) => {
+  const prev = envSelectIndex;
+  selectEnvironment(envSelectIndex + dir);
+  if (envSelectIndex !== prev) playSFX("lane");
+};
+document.getElementById("envPrev")?.addEventListener("click", () => cycleEnvironment(-1));
+document.getElementById("envNext")?.addEventListener("click", () => cycleEnvironment(1));
 
 /* ==================== CRASH EFFECT (debris burst) ===================
    A pool of small colored blocks that explode outward from the
@@ -2717,7 +3335,7 @@ function clearTouchHoldTimer() {
 }
 
 function isTouchUI(el) {
-  return el && el.closest("#pauseBtn, #muteBtn, #musicBtn, #camBtn, #helpOverlay, #btnHelp, #btnHelpPause, #btnHelpClose, .menuBtn, .arrowBtn, .helpBtn, .prompt");
+  return el && el.closest("#pauseBtn, #muteBtn, #musicBtn, #camBtn, #helpOverlay, #btnHelp, #btnHelpPause, #btnHelpClose, #envPrev, #envNext, .menuBtn, .arrowBtn, .helpBtn, .prompt");
 }
 
 function handleTouchTap() {
@@ -2826,6 +3444,8 @@ window.addEventListener("keydown", (ev) => {
   } else if (state === GameState.START) {
     if      (k === "ArrowLeft"  || k === "a" || k === "A") cycleVehicle(-1);
     else if (k === "ArrowRight" || k === "d" || k === "D") cycleVehicle(1);
+    else if (k === "ArrowUp"    || k === "w" || k === "W") cycleEnvironment(-1);
+    else if (k === "ArrowDown"  || k === "s" || k === "S") cycleEnvironment(1);
     else if (k === " " || k === "Enter") startGame();
   } else if (k === " " || k === "Enter") startGame();
 });
@@ -2897,6 +3517,7 @@ function tick() {
   /* ---- Atmosphere runs off survival time; the start & game-over
      screens hold whatever moment the sky was at.                    */
   const darkness = applyAtmosphere(runTime);
+  updateBiomeVisuals(darkness);
 
   /* Headlights & car glow respond to darkness every frame.
      Player brake lights flare bright on top of the night glow.     */
@@ -3045,6 +3666,7 @@ function tick() {
 
 try {
   selectVehicle(0);
+  selectEnvironment(0);
   refreshScoreDisplays();
   updateCamBtn();
   resetGame();
