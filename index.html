@@ -804,6 +804,24 @@
       const line = document.createElement("div");
       line.textContent = String(msg);
       box.appendChild(line);
+      box.scrollTop = box.scrollHeight;
+    };
+    const fmtArgs = (args) => Array.from(args).map((a) => {
+      if (a == null) return String(a);
+      if (typeof a === "string") return a;
+      if (a instanceof Error) return a.message || String(a);
+      try { return typeof a === "object" ? JSON.stringify(a) : String(a); }
+      catch (_) { return String(a); }
+    }).join(" ");
+    const origWarn = console.warn.bind(console);
+    const origError = console.error.bind(console);
+    console.warn = function () {
+      try { push("[warn] " + fmtArgs(arguments)); } catch (_) {}
+      return origWarn.apply(console, arguments);
+    };
+    console.error = function () {
+      try { push("[error] " + fmtArgs(arguments)); } catch (_) {}
+      return origError.apply(console, arguments);
     };
     push("[debug] on");
     window.addEventListener("error", (e) => {
@@ -1025,9 +1043,14 @@ async function loadAllSounds() {
   await Promise.all(Object.entries(AUDIO_FILES).map(async ([key, url]) => {
     try {
       const buf = await loadSound(url);
-      if (buf) SOUNDS[key] = buf;
+      if (buf) {
+        SOUNDS[key] = buf;
+        console.warn(`[audio] "${key}" (${url}): loaded OK`);
+      } else {
+        console.warn(`[audio] "${key}" (${url}): decode returned empty`);
+      }
     } catch (err) {
-      console.warn(`[audio] failed to load "${key}" (${url}):`, err);
+      console.warn(`[audio] "${key}" (${url}): FAILED — ${err && err.message ? err.message : err}`);
     }
   }));
 }
@@ -1235,16 +1258,47 @@ function setMusicMuted(on) {
 let audioUnlockPromise = null;
 
 async function unlockAudio() {
-  if (audioUnlocked) return;
-  if (audioUnlockPromise) return audioUnlockPromise;
+  if (audioUnlocked) {
+    console.warn("[audio] unlockAudio: already unlocked, state=" + (audioCtx ? audioCtx.state : "no-ctx"));
+    return;
+  }
+  if (audioUnlockPromise) {
+    console.warn("[audio] unlockAudio: already in progress, awaiting…");
+    return audioUnlockPromise;
+  }
+  console.warn("[audio] unlockAudio: starting…");
+  const unlockStartedAt = Date.now();
+  setTimeout(() => {
+    if (!audioUnlocked) {
+      console.warn("[audio] unlockAudio: STUCK — still not complete after 5s (promise pending)");
+    }
+  }, 5000);
   audioUnlockPromise = (async () => {
     try {
       initAudioContext();
-      if (!audioCtx) return;
+      if (!audioCtx) {
+        console.warn("[audio] unlockAudio: AudioContext not created");
+        audioUnlocked = true;
+        return;
+      }
+      console.warn("[audio] AudioContext state before resume: " + audioCtx.state);
       try {
-        if (audioCtx.state === "suspended") await audioCtx.resume();
-      } catch (_) {}
-      try { await loadAllSounds(); } catch (_) {}
+        if (audioCtx.state === "suspended") {
+          await audioCtx.resume();
+          console.warn("[audio] AudioContext state after resume(): " + audioCtx.state);
+          if (audioCtx.state !== "running") {
+            console.warn("[audio] resume() did not reach running (still " + audioCtx.state + ")");
+          }
+        } else {
+          console.warn("[audio] AudioContext already " + audioCtx.state + " — skip resume()");
+        }
+      } catch (resumeErr) {
+        console.warn("[audio] audioCtx.resume() threw: " + (resumeErr && resumeErr.message ? resumeErr.message : resumeErr));
+        console.warn("[audio] AudioContext state after resume error: " + audioCtx.state);
+      }
+      try { await loadAllSounds(); } catch (loadErr) {
+        console.warn("[audio] loadAllSounds threw: " + (loadErr && loadErr.message ? loadErr.message : loadErr));
+      }
       try {
         startEngineLoop();
         startSirenLoop();
@@ -1260,11 +1314,21 @@ async function unlockAudio() {
         nitroAudioOn = false;
         sirenAudioOn = false;
         rampMusicGain();
-      } catch (_) {}
+        console.warn("[audio] loops started — engine=" + !!engineSource +
+          " siren=" + !!sirenSource + " nitro=" + !!nitroSource +
+          " brake=" + !!brakeSource + " music=" + !!musicSource +
+          " keys=" + Object.keys(SOUNDS).join(","));
+      } catch (loopErr) {
+        console.warn("[audio] loop start failed: " + (loopErr && loopErr.message ? loopErr.message : loopErr));
+      }
       audioUnlocked = true;
+      console.warn("[audio] unlockAudio: COMPLETE audioUnlocked=true state=" + audioCtx.state +
+        " elapsedMs=" + (Date.now() - unlockStartedAt));
     } catch (err) {
       console.warn("[audio] unlockAudio failed:", err);
       audioUnlocked = true; /* don't retry forever / block gameplay */
+      console.warn("[audio] unlockAudio: COMPLETE (after error) audioUnlocked=true elapsedMs=" +
+        (Date.now() - unlockStartedAt));
     }
   })();
   try { await audioUnlockPromise; } catch (_) {}
