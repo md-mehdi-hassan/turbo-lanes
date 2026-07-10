@@ -1161,14 +1161,15 @@ function updateEngineAudio(dt) {
   try {
     if (!engineGain || !engineSource || !audioCtx) return;
     const t = audioCtx.currentTime;
+    const vehMax = VEHICLE_DEFS[selectedIndex].maxSpeed || MAX_SPEED;
     const targetVol = state === GameState.PLAY
-      ? 0.15 + (speed / MAX_SPEED) * 0.35
+      ? 0.15 + (speed / vehMax) * 0.35
       : 0;
     engineGain.gain.cancelScheduledValues(t);
     engineGain.gain.setValueAtTime(engineGain.gain.value, t);
     engineGain.gain.linearRampToValueAtTime(targetVol, t + 0.08);
     const targetPitch = state === GameState.PLAY
-      ? 0.85 + (speed / MAX_SPEED) * 0.5
+      ? 0.85 + (speed / vehMax) * 0.5
       : 0.85;
     enginePitchCurrent += (targetPitch - enginePitchCurrent) * (1 - Math.exp(-6 * dt));
     engineSource.playbackRate.value = enginePitchCurrent;
@@ -1747,7 +1748,7 @@ function updateChaseCamera(dt, nitroActive) {
 }
 
 const BASE_SPEED = 26;      // world scroll, units/s
-const MAX_SPEED  = 58;
+const MAX_SPEED  = 85;      // fallback ceiling (STREET BIKE maxSpeed)
 const SPEED_RAMP = 0.70;    // world speed gain per second
 const ENEMY_REL  = 0.55;    // enemies add 55% oncoming speed
 const LANE_LERP  = 9;
@@ -1755,7 +1756,8 @@ const SCORE_RATE = 10;
 
 /* Braking (hold ▼ / S) — slows the car to a fraction of cruise speed */
 const BRAKE_FACTOR   = 0.45;  // speed drops to 45% of cruise while held
-const BRAKE_RESPONSE = 3.2;   // how quickly speed eases toward the target
+const BRAKE_RESPONSE = 3.2;   // how quickly speed eases DOWN while braking
+const ACCEL_RESPONSE = 1.0;   // how quickly speed recovers after brake release (~3× slower)
 
 /* Nitro (hold ▲ / W) — burns fuel for a big burst of speed.
    Fuel drains while burning and slowly regenerates when idle; once
@@ -2183,15 +2185,22 @@ let starsMat;
    child, and the hitbox + exhaust position adapt per vehicle.        */
 
 const VEHICLE_DEFS = [
+  /* maxSpeed = cruise cap (world units/s); HUD ≈ maxSpeed × 4 (enemyScale 1) */
+  /* accel = SPEED_RAMP multiplier */
   { name: "SPORTS CAR",  halfW: 1.05, halfL: 2.05, exhaust: { x: 0.45, z: 2.75 },
+    maxSpeed: 75, accel: 1.00,
     build: () => buildSports(PLAYER_PAINT, true) },
   { name: "RUGGED SUV",  halfW: 1.18, halfL: 2.2,  exhaust: { x: 0.5,  z: 2.4  },
+    maxSpeed: 67, accel: 0.85,
     build: buildSUV },
   { name: "STREET BIKE", halfW: 0.55, halfL: 1.5,  exhaust: { x: 0.12, z: 1.5  },
+    maxSpeed: 85, accel: 1.25,
     build: buildBike },
   { name: "CYBERTRUCK",  halfW: 1.18, halfL: 2.6,  exhaust: { x: 0.55, z: 2.95 },
+    maxSpeed: 62, accel: 0.75,
     build: buildCyber },
   { name: "POLICE CAR",  halfW: 1.05, halfL: 2.1,  exhaust: { x: 0.45, z: 2.3  },
+    maxSpeed: 70, accel: 1.05,
     build: buildPolice, siren: true },
 ];
 
@@ -2945,11 +2954,17 @@ function tick() {
     nitroFill.classList.toggle("burning", nitroActive);
 
     /* Cruise speed ramps up; the ACTUAL speed eases toward cruise —
-       down to 45% while braking, up to 155% while the nitro burns.  */
-    cruise = Math.min(MAX_SPEED, cruise + SPEED_RAMP * dt);
+       down to 45% while braking, up to 155% while the nitro burns.
+       Brake cuts in fast; releasing brake recovers more gradually.
+       Per-vehicle maxSpeed / accel change the ceiling and ramp rate. */
+    const veh = VEHICLE_DEFS[selectedIndex];
+    const vehMax = veh.maxSpeed || MAX_SPEED;
+    const vehAccel = veh.accel != null ? veh.accel : 1;
+    cruise = Math.min(vehMax, cruise + SPEED_RAMP * vehAccel * dt);
     const targetSpeed = cruise * (braking ? BRAKE_FACTOR
                                 : nitroActive ? NITRO_FACTOR : 1);
-    speed += (targetSpeed - speed) * (1 - Math.exp(-BRAKE_RESPONSE * dt));
+    const speedResponse = (targetSpeed < speed) ? BRAKE_RESPONSE : ACCEL_RESPONSE;
+    speed += (targetSpeed - speed) * (1 - Math.exp(-speedResponse * dt));
 
     if (runTime >= nextScaleAt && enemyScale < ENEMY_SCALE_MAX) {
       enemyScale = Math.min(ENEMY_SCALE_MAX, enemyScale * ENEMY_SCALE_STEP);
