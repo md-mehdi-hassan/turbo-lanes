@@ -61,6 +61,29 @@
     letter-spacing: 3px;
   }
 
+  /* Close-call "+20" float — near score HUD, never blocks driving view */
+  .scorePopup {
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    margin-top: 2px;
+    color: #ffe04a;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 2px 0 rgba(0,0,0,.45), 0 0 10px rgba(255, 224, 74, 0.35);
+    pointer-events: none;
+    white-space: nowrap;
+    animation: scorePopupUp 0.9s ease-out forwards;
+    z-index: 1;
+  }
+  @keyframes scorePopupUp {
+    0%   { opacity: 0; transform: translate(var(--sx, -50%), 6px); }
+    14%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--sx, -50%), -46px); }
+  }
+
   /* ---------- Speed + time-of-day pill (top right) ---------- */
   #topRightHud {
     position: fixed;
@@ -1033,6 +1056,10 @@ let sfxGain = null;
 let audioUnlocked = false;
 let sfxMuted = false;
 let musicMuted = false;
+/* No audible output until a real player action (not mere unlock/load) */
+let audioPlaybackArmed = false;
+const audioPageLoadAt = performance.now();
+const AUDIO_DEBUG = /[?&]debug=1(?:&|$)/.test(location.search);
 const SOUNDS = {};
 let engineSource = null;
 let engineGain = null;
@@ -1068,11 +1095,48 @@ function initAudioContext() {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
-    audioCtx = new Ctx();
+    /* interactive = smaller output buffer → lower SFX latency on mobile */
+    try {
+      audioCtx = new Ctx({ latencyHint: "interactive" });
+    } catch (_) {
+      audioCtx = new Ctx();
+    }
     sfxGain = audioCtx.createGain();
     sfxGain.gain.value = sfxMuted ? 0 : 1;
     sfxGain.connect(audioCtx.destination);
   } catch (_) {}
+}
+
+/** Strip excess leading silence, but keep ~50ms pad (files had ~150ms). */
+function trimBufferSilence(buf, threshold) {
+  if (!buf || !audioCtx) return buf;
+  const thr = threshold == null ? 0.012 : threshold;
+  const keepMs = 50;   /* leave this much silence before the attack */
+  const nCh = buf.numberOfChannels;
+  const len = buf.length;
+  const chans = new Array(nCh);
+  for (let c = 0; c < nCh; c++) chans[c] = buf.getChannelData(c);
+
+  let start = 0;
+  for (; start < len; start++) {
+    let peak = 0;
+    for (let c = 0; c < nCh; c++) {
+      const v = Math.abs(chans[c][start]);
+      if (v > peak) peak = v;
+    }
+    if (peak >= thr) break;
+  }
+  const keepSamples = Math.floor(buf.sampleRate * (keepMs / 1000));
+  start = Math.max(0, start - keepSamples);
+  if (start < 128) return buf;
+
+  const newLen = len - start;
+  if (newLen < 256) return buf;
+  const out = audioCtx.createBuffer(nCh, newLen, buf.sampleRate);
+  for (let c = 0; c < nCh; c++) {
+    out.getChannelData(c).set(chans[c].subarray(start));
+  }
+  return out;
 }
 
 async function loadSound(url, timeoutMs = 8000) {
@@ -1081,40 +1145,78 @@ async function loadSound(url, timeoutMs = 8000) {
   try {
     const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
     if (!res.ok) throw new Error(String(res.status));
-    return await audioCtx.decodeAudioData(await res.arrayBuffer());
+    const raw = await audioCtx.decodeAudioData(await res.arrayBuffer());
+    return trimBufferSilence(raw);
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function loadAllSounds() {
-  /* Each file is isolated — one 404/decode/timeout never rejects the batch */
-  await Promise.all(Object.entries(AUDIO_FILES).map(async ([key, url]) => {
-    try {
-      const buf = await loadSound(url);
-      if (buf) {
-        SOUNDS[key] = buf;
-        console.warn(`[audio] "${key}" (${url}): loaded OK`);
-      } else {
-        console.warn(`[audio] "${key}" (${url}): decode returned empty`);
-      }
-    } catch (err) {
-      console.warn(`[audio] "${key}" (${url}): FAILED — ${err && err.message ? err.message : err}`);
+const SFX_LOAD_KEYS = ["ui", "lane", "nitro", "brake", "crash", "engine", "engine_police"];
+
+async function loadSoundKey(key) {
+  const url = AUDIO_FILES[key];
+  if (!url) return;
+  try {
+    const buf = await loadSound(url);
+    if (buf) {
+      SOUNDS[key] = buf;
+      console.warn(`[audio] "${key}" loaded OK`);
     }
-  }));
+  } catch (err) {
+    console.warn(`[audio] "${key}" FAILED — ${err && err.message ? err.message : err}`);
+  }
+}
+
+async function loadAllSounds() {
+  /* SFX first so lane/ui/crash are ready before the big music file */
+  await Promise.all(SFX_LOAD_KEYS.map(loadSoundKey));
+  /* Music loads in background — never blocks effect sounds */
+  void loadSoundKey("music").then(() => {
+    if (audioUnlocked && !musicSource) {
+      try {
+        startMusicLoop();
+        if (audioPlaybackArmed) rampMusicGain();
+      } catch (_) {}
+    }
+  });
+}
+
+function armAudioPlayback(reason) {
+  if (audioPlaybackArmed) return;
+  audioPlaybackArmed = true;
+  console.warn("[audio] playback armed (" + (reason || "?") + ")");
+  try { rampMusicGain(); } catch (_) {}
 }
 
 function playSFX(name, { volume = 1, pitch = 1 } = {}) {
   try {
-    if (!audioCtx || !SOUNDS[name]) return;
+    if (AUDIO_DEBUG && (performance.now() - audioPageLoadAt) < 2000) {
+      let tip = "?";
+      try {
+        tip = (new Error("sfx")).stack.split("\n").slice(2, 5).map(s => s.trim()).join(" | ");
+      } catch (_) {}
+      console.warn("[audio] playSFX('" + name + "') t=" +
+        Math.round(performance.now() - audioPageLoadAt) + "ms armed=" + audioPlaybackArmed +
+        " :: " + tip);
+    }
+    if (!audioPlaybackArmed) return;
+    if (!audioCtx || !SOUNDS[name] || sfxMuted) return;
+    if (audioCtx.state === "suspended") {
+      try { audioCtx.resume(); } catch (_) {}
+    }
     const src = audioCtx.createBufferSource();
     src.buffer = SOUNDS[name];
-    src.playbackRate.value = pitch;
-    const g = audioCtx.createGain();
-    g.gain.value = volume;
-    src.connect(g);
-    g.connect(sfxGain);
-    src.start(0);
+    if (pitch !== 1) src.playbackRate.value = pitch;
+    if (volume >= 0.999) {
+      src.connect(sfxGain);
+    } else {
+      const g = audioCtx.createGain();
+      g.gain.value = volume;
+      src.connect(g);
+      g.connect(sfxGain);
+    }
+    src.start();
   } catch (_) {}
 }
 
@@ -1128,7 +1230,8 @@ function startEngineLoop() {
     engineSource.loop = true;
     engineSource.connect(engineGain);
     engineGain.connect(sfxGain);
-    engineSource.start(0);
+    engineGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    engineSource.start();
     enginePitchCurrent = 0.85;
   } catch (_) {}
 }
@@ -1143,53 +1246,58 @@ function startSirenLoop() {
     sirenSource.loop = true;
     sirenSource.connect(sirenGain);
     sirenGain.connect(sfxGain);
-    sirenSource.start(0);
+    sirenGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    sirenSource.start();
   } catch (_) {}
 }
 
 function startNitroLoop() {
   try {
     if (!audioCtx || nitroSource || !SOUNDS.nitro) return;
+    nitroGain = audioCtx.createGain();
+    nitroGain.gain.value = 0;
     nitroSource = audioCtx.createBufferSource();
     nitroSource.buffer = SOUNDS.nitro;
     nitroSource.loop = true;
-    nitroGain = audioCtx.createGain();
-    nitroGain.gain.value = 0;
     nitroSource.connect(nitroGain);
     nitroGain.connect(sfxGain);
-    nitroSource.start(0);
+    nitroGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    nitroSource.start();
   } catch (_) {}
 }
 
 function startBrakeLoop() {
   try {
     if (!audioCtx || brakeSource || !SOUNDS.brake) return;
+    brakeGain = audioCtx.createGain();
+    brakeGain.gain.value = 0;
     brakeSource = audioCtx.createBufferSource();
     brakeSource.buffer = SOUNDS.brake;
     brakeSource.loop = true;
-    brakeGain = audioCtx.createGain();
-    brakeGain.gain.value = 0;
     brakeSource.connect(brakeGain);
     brakeGain.connect(sfxGain);
-    brakeSource.start(0);
+    brakeGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    brakeSource.start();
   } catch (_) {}
 }
 
 function startMusicLoop() {
   try {
     if (!audioCtx || musicSource || !SOUNDS.music) return;
+    musicGain = audioCtx.createGain();
+    musicGain.gain.value = 0;
     musicSource = audioCtx.createBufferSource();
     musicSource.buffer = SOUNDS.music;
     musicSource.loop = true;
-    musicGain = audioCtx.createGain();
-    musicGain.gain.value = 0;
     musicSource.connect(musicGain);
     musicGain.connect(audioCtx.destination);
-    musicSource.start(0);
+    musicGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    musicSource.start();
   } catch (_) {}
 }
 
 function musicTargetForState(s) {
+  if (!audioPlaybackArmed || musicMuted) return 0;
   if (s === GameState.PLAY) return 0.55;
   if (s === GameState.PAUSE) return 0.15;
   return 0.35;
@@ -1199,10 +1307,12 @@ function rampMusicGain() {
   try {
     if (!musicGain || !audioCtx) return;
     const t = audioCtx.currentTime;
-    const target = musicMuted ? 0 : musicTargetForState(state);
+    const target = musicTargetForState(state);
+    const cur = musicGain.gain.value;
     musicGain.gain.cancelScheduledValues(t);
-    musicGain.gain.setValueAtTime(musicGain.gain.value, t);
-    musicGain.gain.linearRampToValueAtTime(target, t + 0.4);
+    musicGain.gain.setValueAtTime(cur, t);
+    /* Never instant — avoids click/pop on music bus */
+    musicGain.gain.linearRampToValueAtTime(target, t + 0.3);
   } catch (_) {}
 }
 
@@ -1244,11 +1354,10 @@ function updateNitroAudio(nitroActive) {
     const want = !!(nitroActive && state === GameState.PLAY);
     if (want === nitroAudioOn) return;
     nitroAudioOn = want;
-    const target = want ? 0.7 : 0;
     const t = audioCtx.currentTime;
     nitroGain.gain.cancelScheduledValues(t);
     nitroGain.gain.setValueAtTime(nitroGain.gain.value, t);
-    nitroGain.gain.linearRampToValueAtTime(target, t + (target > 0 ? 0.08 : 0.12));
+    nitroGain.gain.linearRampToValueAtTime(want ? 0.7 : 0, t + (want ? 0.06 : 0.08));
   } catch (_) {}
 }
 
@@ -1258,11 +1367,10 @@ function updateBrakeAudio(braking) {
     const want = !!(braking && state === GameState.PLAY);
     if (want === brakeAudioOn) return;
     brakeAudioOn = want;
-    const target = want ? 0.65 : 0;
     const t = audioCtx.currentTime;
     brakeGain.gain.cancelScheduledValues(t);
     brakeGain.gain.setValueAtTime(brakeGain.gain.value, t);
-    brakeGain.gain.linearRampToValueAtTime(target, t + (target > 0 ? 0.06 : 0.08));
+    brakeGain.gain.linearRampToValueAtTime(want ? 0.65 : 0, t + (want ? 0.05 : 0.06));
   } catch (_) {}
 }
 
@@ -1293,7 +1401,8 @@ function silenceGameplayLoops() {
   }
 }
 
-/** Mute every bus + suspend AudioContext when tab/app backgrounds */
+/** Mute every bus when tab/app backgrounds.
+ *  Mobile: never suspend() — resume() often fails outside a tap (silent forever). */
 function silenceAllAudioForBackground() {
   if (!audioCtx) return;
   try {
@@ -1318,12 +1427,15 @@ function silenceAllAudioForBackground() {
     brakeAudioOn = false;
     sirenAudioOn = false;
   } catch (_) {}
-  try {
-    if (audioCtx.state === "running") {
-      const p = audioCtx.suspend();
-      if (p && typeof p.catch === "function") p.catch(() => {});
-    }
-  } catch (_) {}
+  const touch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+  if (!touch) {
+    try {
+      if (audioCtx.state === "running") {
+        const p = audioCtx.suspend();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      }
+    } catch (_) {}
+  }
 }
 
 /** Resume AudioContext + restore music only when returning to foreground */
@@ -1386,13 +1498,20 @@ let htmlAudioUnlockDone = false;
  */
 function resumeAudioFromGesture(reason) {
   const why = reason || "gesture";
+  /* Hot path during PLAY — skip unlock work once audio is live */
+  if (audioCtx && audioCtx.state === "running" && audioUnlocked && SOUNDS.lane) {
+    return;
+  }
   try {
     if (!audioCtx) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) {
         console.warn("[audio] no AudioContext API");
       } else {
-        audioCtx = new Ctx();
+        audioCtx = (() => {
+          try { return new Ctx({ latencyHint: "interactive" }); }
+          catch (_) { return new Ctx(); }
+        })();
         sfxGain = audioCtx.createGain();
         sfxGain.gain.value = sfxMuted ? 0 : 1;
         sfxGain.connect(audioCtx.destination);
@@ -1409,28 +1528,15 @@ function resumeAudioFromGesture(reason) {
     console.warn("[audio] first gesture at t=0, watching state for 5s");
   }
 
-  /* HTML5 <audio> unlock — independent of Web Audio resume() */
+  /* Silent HTML5 unlock only — never play a real SFX file here (adds latency) */
   if (!htmlAudioUnlockDone) {
     htmlAudioUnlockDone = true;
     try {
-      const el = new Audio();
-      el.src = AUDIO_FILES.ui || SILENT_WAV_URI;
-      el.volume = 0.01;
-      const playP = el.play();
-      if (playP && typeof playP.catch === "function") {
-        playP.catch(() => {
-          try {
-            const silent = new Audio(SILENT_WAV_URI);
-            silent.volume = 0.01;
-            const p2 = silent.play();
-            if (p2 && p2.catch) p2.catch(() => {});
-          } catch (_) {}
-        });
-      }
-      console.warn("[audio] HTML5 Audio unlock play() fired");
-    } catch (err) {
-      console.warn("[audio] HTML5 Audio unlock failed: " + (err && err.message ? err.message : err));
-    }
+      const silent = new Audio(SILENT_WAV_URI);
+      silent.volume = 0.01;
+      const playP = silent.play();
+      if (playP && typeof playP.catch === "function") playP.catch(() => {});
+    } catch (_) {}
   }
 
   if (audioCtx) {
@@ -1503,12 +1609,12 @@ async function setupAudioAssets() {
     brakeAudioOn = false;
     nitroAudioOn = false;
     sirenAudioOn = false;
-    rampMusicGain();
+    if (audioPlaybackArmed) rampMusicGain();
     console.warn("[audio] loops started — engine=" + !!engineSource +
       " siren=" + !!sirenSource + " nitro=" + !!nitroSource +
       " brake=" + !!brakeSource + " music=" + !!musicSource +
       " keys=" + Object.keys(SOUNDS).join(",") +
-      " state=" + audioCtx.state);
+      " state=" + audioCtx.state + " armed=" + audioPlaybackArmed);
   } catch (err) {
     console.warn("[audio] loop start failed: " + (err && err.message ? err.message : err));
   }
@@ -1546,15 +1652,18 @@ document.addEventListener("click", onFirstGesture, { once: true });
 
 if (muteBtn) muteBtn.addEventListener("click", () => {
   resumeAudioFromGesture("muteBtn");
+  armAudioPlayback("muteBtn");
   setSfxMuted(!sfxMuted);
   if (!sfxMuted) playSFX("ui");
 });
 if (musicBtn) musicBtn.addEventListener("click", () => {
   resumeAudioFromGesture("musicBtn");
+  armAudioPlayback("musicBtn");
   setMusicMuted(!musicMuted);
 });
 document.getElementById("camBtn")?.addEventListener("click", () => {
   resumeAudioFromGesture("camBtn");
+  armAudioPlayback("camBtn");
   toggleCamera();
   if (!sfxMuted) playSFX("ui");
 });
@@ -1802,6 +1911,7 @@ const SPEED_RAMP = 0.70;    // world speed gain per second
 const ENEMY_REL  = 0.55;    // enemies add 55% oncoming speed
 const LANE_LERP  = 9;
 const SCORE_RATE = 10;
+const CLOSE_CALL_BONUS = 20;
 
 /* Braking (hold ▼ / S) — slows the car to a fraction of cruise speed */
 const BRAKE_FACTOR   = 0.45;  // speed drops to 45% of cruise while held
@@ -2241,6 +2351,8 @@ const dashes = [];
 
 const BIOME_DURATION = 45;
 const BIOME_BLEND_S  = 4;
+/* Swap props / discrete ground near END of color blend (not mid-fade at 0.5) */
+const BIOME_PROP_SWAP = 0.9;
 const _cFogBase = new THREE.Color();
 const _cFogTint = new THREE.Color();
 const _cGround  = new THREE.Color();
@@ -2519,7 +2631,8 @@ let lastPropBiome = -1;
 const props = [];
 
 function getDisplayBiomeIndex() {
-  return biomeBlend >= 0.5 ? biomeIndex : biomePrevIndex;
+  /* Hold old props until ~90% through the color crossfade, then swap */
+  return biomeBlend >= BIOME_PROP_SWAP ? biomeIndex : biomePrevIndex;
 }
 
 function setPropBiomeVisible(p, idx) {
@@ -2642,8 +2755,9 @@ function updateBiomeVisuals(darkness) {
 
   const prev = BIOMES[biomePrevIndex];
   const curr = BIOMES[biomeIndex];
-  const active = biomeBlend >= 0.5 ? curr : prev;
-  const isCoast = active.id === "COAST";
+  /* Colors always lerp with biomeBlend; discrete swaps wait for PROP_SWAP */
+  const discrete = BIOMES[getDisplayBiomeIndex()];
+  const isCoast = discrete.id === "COAST";
 
   /* Ground / water planes + beach strips */
   if (isCoast) {
@@ -2899,7 +3013,10 @@ function selectVehicle(i) {
 const cycleVehicle = (dir) => {
   const prev = selectedIndex;
   selectVehicle(selectedIndex + dir);
-  if (selectedIndex !== prev) playSFX("lane");
+  if (selectedIndex !== prev) {
+    armAudioPlayback("cycleVehicle");
+    playSFX("lane");
+  }
 };
 document.getElementById("vehPrev").addEventListener("click", () => cycleVehicle(-1));
 document.getElementById("vehNext").addEventListener("click", () => cycleVehicle(1));
@@ -2943,7 +3060,10 @@ function selectEnvironment(i) {
 const cycleEnvironment = (dir) => {
   const prev = envSelectIndex;
   selectEnvironment(envSelectIndex + dir);
-  if (envSelectIndex !== prev) playSFX("lane");
+  if (envSelectIndex !== prev) {
+    armAudioPlayback("cycleEnvironment");
+    playSFX("lane");
+  }
 };
 document.getElementById("envPrev")?.addEventListener("click", () => cycleEnvironment(-1));
 document.getElementById("envNext")?.addEventListener("click", () => cycleEnvironment(1));
@@ -3036,7 +3156,7 @@ for (const typeName of POOL_PLAN) {
   const { group, paintMeshes } = type.build();
   group.rotation.y = Math.PI;              // oncoming traffic faces us
   scene.add(group);
-  enemies.push({ mesh: group, paintMeshes, type, lane: 0 });
+  enemies.push({ mesh: group, paintMeshes, type, lane: 0, closeCallGiven: false });
 }
 
 /* Fair spawning — min gap grows with speed; near-simultaneous spawns
@@ -3054,6 +3174,7 @@ function spawnEnemy(e, initialStagger) {
   }
 
   e.lane = lane;
+  e.closeCallGiven = false;
   e.mesh.position.set(LANES[lane], 0, z);
 
   // fresh random paint from this type's cached palette
@@ -3100,6 +3221,7 @@ const LS_TOP3 = "tl_top3";
 const TOP_N = 3;
 
 const hudScore   = document.getElementById("score");
+const hudRoot    = document.getElementById("hud");
 const hudSpd     = document.getElementById("spd");
 const phaseLabel = document.getElementById("phaseLabel");
 const startPanel = document.getElementById("startOverlay");
@@ -3115,6 +3237,34 @@ const startTop3El    = document.getElementById("startTop3");
 const personalBestEl = document.getElementById("personalBest");
 const overTop3El     = document.getElementById("overTop3");
 const newRecordBadge = document.getElementById("newRecordBadge");
+
+let scorePopupSeq = 0;
+let lastCloseCallSfxAt = 0;
+
+/** Floating "+N" near the score HUD — each call gets its own element */
+function showScorePopup(text) {
+  if (!hudRoot) return;
+  const el = document.createElement("div");
+  el.className = "scorePopup";
+  el.textContent = text;
+  const off = ((scorePopupSeq++ % 5) - 2) * 16;
+  el.style.setProperty("--sx", "calc(-50% + " + off + "px)");
+  hudRoot.appendChild(el);
+  el.addEventListener("animationend", () => { try { el.remove(); } catch (_) {} });
+}
+
+function awardCloseCall(e) {
+  if (e.closeCallGiven) return;
+  e.closeCallGiven = true;
+  score += CLOSE_CALL_BONUS;
+  hudScore.textContent = Math.floor(score);
+  showScorePopup("+" + CLOSE_CALL_BONUS);
+  const now = performance.now();
+  if (!sfxMuted && now - lastCloseCallSfxAt > 150) {
+    lastCloseCallSfxAt = now;
+    playSFX("ui", { pitch: 1.3, volume: 0.6 });
+  }
+}
 
 function loadTopScores() {
   let best = 0, top3 = [];
@@ -3200,8 +3350,10 @@ function startGame() {
   closeHelp();
   startingGame = true;
   try {
+    resumeAudioFromGesture("startGame");
+    armAudioPlayback("startGame");
     /* Never await audio — slow mobile networks must not delay PLAY */
-    void setupAudioAssets(); /* background load; gestures call resumeAudioFromGesture() */
+    void setupAudioAssets();
     resetGame();
     silenceGameplayLoops();
     state = GameState.PLAY;
@@ -3282,7 +3434,12 @@ function goToMenu() {
 }
 
 function withUIClick(fn) {
-  return () => { resumeAudioFromGesture("ui-click"); playSFX("ui"); fn(); };
+  return () => {
+    resumeAudioFromGesture("ui-click");
+    armAudioPlayback("ui-click");
+    playSFX("ui");
+    fn();
+  };
 }
 
 function isHelpOpen() {
@@ -3303,17 +3460,20 @@ pauseBtn.addEventListener("click", withUIClick(pauseGame));
 document.getElementById("btnResume").addEventListener("click", withUIClick(resumeGame));
 document.getElementById("btnRestart").addEventListener("click", () => {
   resumeAudioFromGesture("restart");
+  armAudioPlayback("restart");
   startGame();
 });
 document.getElementById("btnMenu").addEventListener("click", withUIClick(goToMenu));
 document.getElementById("btnHelp")?.addEventListener("click", (e) => {
   resumeAudioFromGesture("help");
+  armAudioPlayback("help");
   e.stopPropagation();
   if (!sfxMuted) playSFX("ui");
   openHelp();
 });
 document.getElementById("btnHelpPause")?.addEventListener("click", (e) => {
   resumeAudioFromGesture("help-pause");
+  armAudioPlayback("help-pause");
   e.stopPropagation();
   if (!sfxMuted) playSFX("ui");
   openHelp();
@@ -3640,15 +3800,32 @@ function tick() {
     }
 
     /* Per-type 3D AABB collision — player extents follow the
-       selected vehicle (bike squeezes gaps a big rig can't).        */
+       selected vehicle (bike squeezes gaps a big rig can't).
+       Close-call: adjacent lane + alongside longitudinally (once/pass).
+       Collision always wins and still ends the run immediately.         */
     const px = playerCar.position.x, pz = playerCar.position.z;
+    /* Nearest lane index (handles mid-lerp between lanes) */
+    let playerLaneIdx = 0;
+    {
+      let bestD = Infinity;
+      for (let li = 0; li < LANES.length; li++) {
+        const d = Math.abs(px - LANES[li]);
+        if (d < bestD) { bestD = d; playerLaneIdx = li; }
+      }
+    }
     for (const e of enemies) {
       const hw = playerHalfW + e.type.halfW - 0.25;
       const hl = playerHalfL + e.type.halfL - 0.6;
-      if (Math.abs(px - e.mesh.position.x) < hw &&
-          Math.abs(pz - e.mesh.position.z) < hl) {
+      const dx = Math.abs(px - e.mesh.position.x);
+      const dz = Math.abs(pz - e.mesh.position.z);
+      if (dx < hw && dz < hl) {
         gameOver();
         break;
+      }
+      if (!e.closeCallGiven &&
+          Math.abs(e.lane - playerLaneIdx) === 1 &&
+          dz < hl) {
+        awardCloseCall(e);
       }
     }
   } else {
