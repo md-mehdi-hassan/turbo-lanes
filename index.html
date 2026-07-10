@@ -297,7 +297,10 @@
     transition: transform 1.15s cubic-bezier(.72, 0, .28, 1);
     will-change: transform;
   }
-  #shutter.up { transform: translateY(-102%); }
+  #shutter.up {
+    transform: translateY(-102%);
+    pointer-events: none;
+  }
 
   #shutterLogo {
     font-size: clamp(52px, 10vw, 110px);
@@ -746,6 +749,71 @@
 "use strict";
 
 /* ====================================================================
+   EARLY FAIL-SAFES — run before any game setup so a later throw
+   cannot leave the shutter permanently blocking mobile taps.
+   ==================================================================== */
+
+(function installDebugOverlay() {
+  try {
+    if (!/[?&]debug=1(?:&|$)/.test(location.search)) return;
+    const box = document.createElement("div");
+    box.id = "debugLog";
+    box.style.cssText = [
+      "position:fixed", "left:6px", "bottom:6px", "z-index:99999",
+      "max-width:92vw", "max-height:40vh", "overflow:auto",
+      "padding:8px 10px", "border-radius:8px",
+      "background:rgba(0,0,0,0.82)", "color:#ff6b6b",
+      "font:11px/1.35 monospace", "white-space:pre-wrap",
+      "pointer-events:none",
+    ].join(";");
+    document.body.appendChild(box);
+    const push = (msg) => {
+      const line = document.createElement("div");
+      line.textContent = String(msg);
+      box.appendChild(line);
+    };
+    push("[debug] on");
+    window.addEventListener("error", (e) => {
+      push("ERR: " + (e.message || e.error || e));
+      if (e.filename) push(" @ " + e.filename + ":" + e.lineno);
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      const r = e.reason;
+      push("REJ: " + (r && (r.message || r.stack) || r));
+    });
+  } catch (_) {}
+})();
+
+let shutterOpened = false;
+
+function forceKillShutter() {
+  try {
+    const s = document.getElementById("shutter");
+    if (!s) return;
+    s.style.pointerEvents = "none";
+    if (s.parentNode) s.remove();
+  } catch (_) {}
+}
+
+function openShutter() {
+  if (shutterOpened) return;
+  shutterOpened = true;
+  try {
+    const s = document.getElementById("shutter");
+    if (!s) return;
+    /* Drop input immediately — do not wait for transitionend/remove */
+    s.style.pointerEvents = "none";
+    s.classList.add("up");
+  } catch (_) {
+    forceKillShutter();
+  }
+}
+
+/* Schedule BEFORE any Three.js / audio / game code can throw */
+setTimeout(openShutter, 2600);
+setTimeout(forceKillShutter, 4000);
+
+/* ====================================================================
    TURBO LANES v2 — day-night cycle, dynamic sky, headlights, richer
    roadside, and a three-type traffic system. All procedural, no assets.
    ==================================================================== */
@@ -839,18 +907,28 @@ function initAudioContext() {
   } catch (_) {}
 }
 
-async function loadSound(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(String(res.status));
-  return audioCtx.decodeAudioData(await res.arrayBuffer());
+async function loadSound(url, timeoutMs = 8000) {
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = setTimeout(() => { try { ctrl && ctrl.abort(); } catch (_) {} }, timeoutMs);
+  try {
+    const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+    if (!res.ok) throw new Error(String(res.status));
+    return await audioCtx.decodeAudioData(await res.arrayBuffer());
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function loadAllSounds() {
-  const loaded = await Promise.all(Object.entries(AUDIO_FILES).map(async ([key, url]) => {
-    try { return [key, await loadSound(url)]; }
-    catch (err) { console.warn(`[audio] failed to load "${key}" (${url}):`, err); return [key, null]; }
+  /* Each file is isolated — one 404/decode/timeout never rejects the batch */
+  await Promise.all(Object.entries(AUDIO_FILES).map(async ([key, url]) => {
+    try {
+      const buf = await loadSound(url);
+      if (buf) SOUNDS[key] = buf;
+    } catch (err) {
+      console.warn(`[audio] failed to load "${key}" (${url}):`, err);
+    }
   }));
-  for (const [key, buf] of loaded) if (buf) SOUNDS[key] = buf;
 }
 
 function playSFX(name, { volume = 1, pitch = 1 } = {}) {
@@ -1062,26 +1140,33 @@ async function unlockAudio() {
     try {
       initAudioContext();
       if (!audioCtx) return;
-      if (audioCtx.state === "suspended") await audioCtx.resume();
-      await loadAllSounds();
-      startEngineLoop();
-      startSirenLoop();
-      startNitroLoop();
-      startBrakeLoop();
-      startMusicLoop();
-      const t = audioCtx.currentTime;
-      if (engineGain) engineGain.gain.setValueAtTime(0, t);
-      if (sirenGain) sirenGain.gain.setValueAtTime(0, t);
-      if (nitroGain) nitroGain.gain.setValueAtTime(0, t);
-      if (brakeGain) brakeGain.gain.setValueAtTime(0, t);
-      brakeAudioOn = false;
-      nitroAudioOn = false;
-      sirenAudioOn = false;
+      try {
+        if (audioCtx.state === "suspended") await audioCtx.resume();
+      } catch (_) {}
+      try { await loadAllSounds(); } catch (_) {}
+      try {
+        startEngineLoop();
+        startSirenLoop();
+        startNitroLoop();
+        startBrakeLoop();
+        startMusicLoop();
+        const t = audioCtx.currentTime;
+        if (engineGain) engineGain.gain.setValueAtTime(0, t);
+        if (sirenGain) sirenGain.gain.setValueAtTime(0, t);
+        if (nitroGain) nitroGain.gain.setValueAtTime(0, t);
+        if (brakeGain) brakeGain.gain.setValueAtTime(0, t);
+        brakeAudioOn = false;
+        nitroAudioOn = false;
+        sirenAudioOn = false;
+        rampMusicGain();
+      } catch (_) {}
       audioUnlocked = true;
-      rampMusicGain();
-    } catch (_) {}
+    } catch (err) {
+      console.warn("[audio] unlockAudio failed:", err);
+      audioUnlocked = true; /* don't retry forever / block gameplay */
+    }
   })();
-  return audioUnlockPromise;
+  try { await audioUnlockPromise; } catch (_) {}
 }
 
 function onFirstGesture() { unlockAudio(); }
@@ -2146,16 +2231,19 @@ function resetGame() {
 let startingGame = false;
 
 function syncUiLayers() {
-  const menuOpen = state !== GameState.PLAY || isHelpOpen();
-  renderer.domElement.style.pointerEvents = menuOpen ? "none" : "auto";
+  try {
+    const menuOpen = state !== GameState.PLAY || (typeof isHelpOpen === "function" && isHelpOpen());
+    renderer.domElement.style.pointerEvents = menuOpen ? "none" : "auto";
+  } catch (_) {}
 }
 
-async function startGame() {
+function startGame() {
   if (startingGame || state === GameState.PLAY) return;
   closeHelp();
   startingGame = true;
   try {
-    await unlockAudio();
+    /* Never await audio — slow mobile networks must not delay PLAY */
+    void unlockAudio();
     resetGame();
     silenceGameplayLoops();
     state = GameState.PLAY;
@@ -2166,6 +2254,8 @@ async function startGame() {
     playSFX("ui");
     rampMusicGain();
     syncUiLayers();
+  } catch (err) {
+    console.error("[startGame]", err);
   } finally {
     startingGame = false;
   }
@@ -2411,11 +2501,21 @@ window.addEventListener("keyup", (ev) => {
   }
 });
 
+let promptTouchHandled = false;
+
 function onPromptAction(e) {
   e.preventDefault();
   e.stopPropagation();
+  /* One physical tap often fires touchend then a synthetic click —
+     ignore the ghost click so we never need a second tap. */
+  if (e.type === "touchend") {
+    promptTouchHandled = true;
+    setTimeout(() => { promptTouchHandled = false; }, 450);
+  } else if (e.type === "click" && promptTouchHandled) {
+    return;
+  }
   if (startingGame || isHelpOpen() || state === GameState.PLAY) return;
-  unlockAudio();
+  void unlockAudio();
   startGame();
 }
 
@@ -2580,31 +2680,29 @@ function tick() {
 
 /* ------------------------------ Boot ------------------------------- */
 
-selectVehicle(0);
-refreshScoreDisplays();
-updateCamBtn();
-resetGame();
-syncUiLayers();
-tick();
-
-const shutter = document.getElementById("shutter");
-let shutterOpened = false;
-
-function openShutter() {
-  if (shutterOpened) return;
-  shutterOpened = true;
-  shutter.classList.add("up");
+try {
+  selectVehicle(0);
+  refreshScoreDisplays();
+  updateCamBtn();
+  resetGame();
+  syncUiLayers();
+  tick();
+} catch (err) {
+  console.error("[boot] failed:", err);
+  forceKillShutter();
 }
 
-shutter.addEventListener("click", () => unlockAudio());
-shutter.addEventListener("touchstart", () => unlockAudio(), { passive: true });
-
+const shutter = document.getElementById("shutter");
+if (shutter) {
+  shutter.addEventListener("click", () => { void unlockAudio(); });
+  shutter.addEventListener("touchstart", () => { void unlockAudio(); }, { passive: true });
+  shutter.addEventListener("transitionend", (ev) => {
+    if (ev.propertyName !== "transform") return;
+    forceKillShutter();
+  });
+}
 window.addEventListener("load", () => { setTimeout(openShutter, 1000); });
-shutter.addEventListener("transitionend", (ev) => {
-  if (ev.propertyName !== "transform") return;
-  shutter.remove();
-});
-setTimeout(openShutter, 2600);
+/* 2600ms open + 4000ms hard-remove already scheduled at script top */
 </script>
 </body>
 </html>
