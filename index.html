@@ -1243,6 +1243,60 @@ function silenceGameplayLoops() {
   }
 }
 
+/** Mute every bus + suspend AudioContext when tab/app backgrounds */
+function silenceAllAudioForBackground() {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    const fade = 0.05;
+    const rampZero = (g) => {
+      if (!g) return;
+      try {
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.linearRampToValueAtTime(0, t + fade);
+      } catch (_) {
+        try { g.gain.value = 0; } catch (__) {}
+      }
+    };
+    rampZero(engineGain);
+    rampZero(sirenGain);
+    rampZero(nitroGain);
+    rampZero(brakeGain);
+    rampZero(musicGain);
+    nitroAudioOn = false;
+    brakeAudioOn = false;
+    sirenAudioOn = false;
+  } catch (_) {}
+  try {
+    if (audioCtx.state === "running") {
+      const p = audioCtx.suspend();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    }
+  } catch (_) {}
+}
+
+/** Resume AudioContext + restore music only when returning to foreground */
+function restoreAudioFromForeground() {
+  if (!audioCtx) return;
+  try {
+    if (audioCtx.state === "suspended") {
+      const p = audioCtx.resume();
+      if (p && typeof p.then === "function") {
+        p.then(() => { try { rampMusicGain(); } catch (_) {} })
+          .catch(() => {});
+      } else {
+        rampMusicGain();
+      }
+    } else {
+      rampMusicGain();
+    }
+  } catch (_) {
+    try { rampMusicGain(); } catch (__) {}
+  }
+  /* engine/siren/nitro/brake stay at 0 — tick() ramps them only in PLAY */
+}
+
 function setSfxMuted(on) {
   sfxMuted = on;
   try { if (sfxGain) sfxGain.gain.value = sfxMuted ? 0 : 1; } catch (_) {}
@@ -2805,9 +2859,20 @@ document.querySelectorAll(".prompt").forEach(el => {
   el.addEventListener("click", onPromptAction);
 });
 
-window.addEventListener("blur", () => { if (state === GameState.PLAY) pauseGame(); });
+window.addEventListener("blur", () => {
+  if (state === GameState.PLAY) pauseGame();
+  silenceAllAudioForBackground();
+});
+window.addEventListener("focus", () => {
+  restoreAudioFromForeground();
+});
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden && state === GameState.PLAY) pauseGame();
+  if (document.hidden) {
+    if (state === GameState.PLAY) pauseGame();
+    silenceAllAudioForBackground();
+  } else {
+    restoreAudioFromForeground();
+  }
 });
 
 /* --------------------------- Main loop ----------------------------- */
